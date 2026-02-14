@@ -172,6 +172,19 @@ static void out_str(int color, const char* s)
         out_char(color, (unsigned char)s[i]);
 }
 
+static void out_uint(int color, unsigned int x)
+{
+    char buf[11];
+    int n = 0;
+    if (x == 0) { out_char(color, '0'); return; }
+    while (x > 0 && n < 10)
+    {
+        buf[n++] = (char)('0' + (x % 10));
+        x /= 10;
+    }
+    for (int i = n - 1; i >= 0; i--) out_char(color, (unsigned char)buf[i]);
+}
+
 static void prompt()
 {
     out_str(0x07, "# ");
@@ -237,16 +250,13 @@ static void erase_last_char_on_screen()
 
 static void on_key(unsigned char sc)
 {
-    // handle extended scancodes prefix
     if (sc == 0xE0) { e0_prefix = 1; return; }
-    if (e0_prefix) { e0_prefix = 0; return; } // ignore extended keys for now
+    if (e0_prefix) { e0_prefix = 0; return; } // ignore extended keys
 
-    // shift press / release
-    if (sc == 42 || sc == 54) { shift_down = 1; return; }
-    if (sc == 170 || sc == 182) { shift_down = 0; return; }
+    if (sc == 42 || sc == 54) { shift_down = 1; return; }     // shift press
+    if (sc == 170 || sc == 182) { shift_down = 0; return; }   // shift release
 
-    // backspace
-    if (sc == 14)
+    if (sc == 14) // backspace
     {
         if (cmd_len == 0) return;
         cmd_len--;
@@ -255,8 +265,7 @@ static void on_key(unsigned char sc)
         return;
     }
 
-    // enter
-    if (sc == 28)
+    if (sc == 28) // enter
     {
         out_char(0x07, '\n');
         cmd[cmd_len] = 0;
@@ -264,8 +273,7 @@ static void on_key(unsigned char sc)
         return;
     }
 
-    // ignore other releases
-    if (sc & 0x80) return;
+    if (sc & 0x80) return; // other releases
 
     char c = scan_codes[(unsigned int)sc];
     if (!c) return;
@@ -290,7 +298,6 @@ extern "C" void keyb_process_keys()
     }
 }
 
-// --------------- Keyboard IRQ handler (naked) ---------------
 __attribute__((naked)) void keyb_handler()
 {
     __asm__ volatile (
@@ -331,7 +338,6 @@ static char to_upper(char c)
     if (c >= 'a' && c <= 'z') return (char)(c - 'a' + 'A');
     return c;
 }
-
 static char to_lower(char c)
 {
     if (c >= 'A' && c <= 'Z') return (char)(c - 'A' + 'a');
@@ -340,18 +346,14 @@ static char to_lower(char c)
 
 static void print_upcase(const char* s)
 {
-    for (int i = 0; s[i]; i++)
-        out_char(0x07, (unsigned char)to_upper(s[i]));
+    for (int i = 0; s[i]; i++) out_char(0x07, (unsigned char)to_upper(s[i]));
     out_char(0x07, '\n');
 }
-
 static void print_downcase(const char* s)
 {
-    for (int i = 0; s[i]; i++)
-        out_char(0x07, (unsigned char)to_lower(s[i]));
+    for (int i = 0; s[i]; i++) out_char(0x07, (unsigned char)to_lower(s[i]));
     out_char(0x07, '\n');
 }
-
 static void print_titlize(const char* s)
 {
     int new_word = 1;
@@ -377,6 +379,110 @@ static void print_titlize(const char* s)
     out_char(0x07, '\n');
 }
 
+// --------------- Template/Search data ---------------
+static volatile char template_buf[41];
+static volatile unsigned int template_len = 0;
+static volatile unsigned char template_loaded = 0;
+
+// Horspool shift table (bm mode)
+static unsigned char bm_shift[256];
+
+static void bm_build_shift_table()
+{
+    unsigned int m = template_len;
+
+    // Для m=0/1 таблица не нужна, но сделаем безопасно
+    if (m == 0)
+    {
+        for (int i = 0; i < 256; i++) bm_shift[i] = 0;
+        return;
+    }
+    if (m == 1)
+    {
+        for (int i = 0; i < 256; i++) bm_shift[i] = 1;
+        return;
+    }
+
+    // Как в лабе: default = m-1 (а не m)
+    for (int i = 0; i < 256; i++) bm_shift[i] = (unsigned char)(m - 1);
+
+    // Для всех символов кроме последнего: shift = (m-1-i)
+    for (unsigned int i = 0; i + 1 < m; i++)
+    {
+        unsigned char ch = (unsigned char)template_buf[i];
+        bm_shift[ch] = (unsigned char)((m - 1) - i);
+    }
+}
+
+
+static void print_template_loaded()
+{
+    out_str(0x07, "Template '");
+    for (unsigned int i = 0; i < template_len; i++)
+        out_char(0x07, (unsigned char)template_buf[i]);
+    out_str(0x07, "' loaded.\n");
+}
+
+static void print_bm_info()
+{
+    out_str(0x07, "BM info:\n");
+
+    // print unique chars from template in order, like: s:5 t:4 ...
+    unsigned char seen[256];
+    for (int i = 0; i < 256; i++) seen[i] = 0;
+
+    for (unsigned int i = 0; i < template_len; i++)
+    {
+        unsigned char ch = (unsigned char)template_buf[i];
+        if (seen[ch]) continue;
+        seen[ch] = 1;
+
+        out_char(0x07, (unsigned char)ch);
+        out_char(0x07, ':');
+        out_uint(0x07, (unsigned int)bm_shift[ch]);
+        out_char(0x07, ' ');
+    }
+    out_char(0x07, '\n');
+}
+
+// naive search (std)
+static int std_search(const char* text, unsigned int n, const char* pat, unsigned int m)
+{
+    if (m == 0) return 0;
+    if (m > n) return -1;
+
+    for (unsigned int i = 0; i + m <= n; i++)
+    {
+        unsigned int j = 0;
+        while (j < m && text[i + j] == pat[j]) j++;
+        if (j == m) return (int)i;
+    }
+    return -1;
+}
+
+// Horspool search (bm)
+static int bm_search(const char* text, unsigned int n, const char* pat, unsigned int m)
+{
+    if (m == 0) return 0;
+    if (m > n) return -1;
+
+    unsigned int i = m - 1;
+    while (i < n)
+    {
+        unsigned int k = 0;
+        while (k < m && pat[m - 1 - k] == text[i - k]) k++;
+        if (k == m)
+            return (int)(i - (m - 1));
+
+        unsigned char c = (unsigned char)text[i];
+        unsigned int sh = (unsigned int)bm_shift[c];
+        if (sh == 0) sh = 1; // на всякий случай
+        i += sh;
+    }
+    return -1;
+}
+
+
 // --------------- Commands ---------------
 static void cmd_info()
 {
@@ -397,6 +503,82 @@ static void cmd_shutdown()
     for (;;) __asm__ volatile ("hlt");
 }
 
+static void cmd_template(const char* s)
+{
+    // load template from s into template_buf (max 40)
+    template_len = 0;
+    for (int i = 0; i < 41; i++) template_buf[i] = 0;
+
+    // skip leading spaces
+    int i = 0;
+    while (s[i] == ' ') i++;
+
+    while (s[i] && template_len < 40)
+    {
+        template_buf[template_len++] = s[i++];
+    }
+
+    template_loaded = (template_len > 0) ? 1 : 0;
+
+    if (!template_loaded)
+    {
+        out_str(0x07, "No template provided.\n");
+        return;
+    }
+
+    print_template_loaded();
+
+    if (boot_mode == 1) // bm
+    {
+        bm_build_shift_table();
+        print_bm_info();
+    }
+}
+
+static void cmd_search(const char* s)
+{
+    if (!template_loaded)
+    {
+        out_str(0x07, "No template loaded.\n");
+        return;
+    }
+
+    // copy search string into local buffer (max 40)
+    char text[41];
+    unsigned int n = 0;
+
+    int i = 0;
+    while (s[i] == ' ') i++;
+    while (s[i] && n < 40)
+    {
+        text[n++] = s[i++];
+    }
+    text[n] = 0;
+
+    int pos;
+    if (boot_mode == 1) // bm
+        pos = bm_search(text, n, (const char*)template_buf, template_len);
+    else
+        pos = std_search(text, n, (const char*)template_buf, template_len);
+
+    if (pos >= 0)
+    {
+        out_str(0x07, "Found '");
+        for (unsigned int k = 0; k < template_len; k++)
+            out_char(0x07, (unsigned char)template_buf[k]);
+        out_str(0x07, "' at pos: ");
+        out_uint(0x07, (unsigned int)pos);
+        out_char(0x07, '\n');
+    }
+    else
+    {
+        out_str(0x07, "Not found '");
+        for (unsigned int k = 0; k < template_len; k++)
+            out_char(0x07, (unsigned char)template_buf[k]);
+        out_str(0x07, "'\n");
+    }
+}
+
 static void handle_command()
 {
     int i = 0;
@@ -408,23 +590,12 @@ static void handle_command()
     if (streq(s, "info")) { cmd_info(); return; }
     if (streq(s, "shutdown")) { cmd_shutdown(); return; }
 
-    if (starts_with(s, "upcase "))
-    {
-        print_upcase(s + 7);
-        return;
-    }
+    if (starts_with(s, "upcase ")) { print_upcase(s + 7); return; }
+    if (starts_with(s, "downcase ")) { print_downcase(s + 9); return; }
+    if (starts_with(s, "titlize ")) { print_titlize(s + 8); return; }
 
-    if (starts_with(s, "downcase "))
-    {
-        print_downcase(s + 9);
-        return;
-    }
-
-    if (starts_with(s, "titlize "))
-    {
-        print_titlize(s + 8);
-        return;
-    }
+    if (starts_with(s, "template ")) { cmd_template(s + 9); return; }
+    if (starts_with(s, "search ")) { cmd_search(s + 7); return; }
 
     out_str(0x07, "Unknown command\n");
 }

@@ -1,0 +1,33 @@
+#!/bin/bash
+
+set -e
+
+BUILD_DIR=build
+
+echo "[0/6] Preparing build directory..."
+mkdir -p $BUILD_DIR
+
+echo "[1/6] Assembling bootloader..."
+fasm bootsect.asm $BUILD_DIR/bootsect.bin
+
+echo "[2/6] Compiling kernel (C++)..."
+g++ -m32 -ffreestanding -fno-pie -fno-exceptions -fno-rtti \
+    -fno-stack-protector -O2 -Wall -Wextra \
+    -c kernel.cpp -o $BUILD_DIR/kernel.o
+
+echo "[3/6] Linking kernel at 0x10000..."
+ld -m elf_i386 -Ttext 0x10000 \
+   --oformat binary \
+   $BUILD_DIR/kernel.o -o $BUILD_DIR/kernel.bin
+
+echo "[4/6] Padding kernel to 48 sectors (24576 bytes)..."
+size=$(stat -c%s $BUILD_DIR/kernel.bin)
+if [ "$size" -lt 24576 ]; then
+    truncate -s 24576 $BUILD_DIR/kernel.bin
+fi
+
+echo "[5/6] Build complete."
+
+echo "[6/6] Starting QEMU from build/..."
+cd $BUILD_DIR
+qemu-system-i386 -display sdl -fda bootsect.bin -fdb kernel.bin

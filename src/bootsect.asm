@@ -1,10 +1,14 @@
-; bootsect.asm
-; BIOS bootloader (FASM)
-; Loads kernel from floppy B: and jumps to it
-; Linux + FASM + gcc, variant 9
+; bootsect.asm (FASM) — waits for "bm" or "std" without Enter, stores choice,
+; then loads kernel from floppy B: to 0x1000:0000 (linear 0x10000) and jumps.
 
 use16
 org 0x7C00
+
+; where to store boot params (chosen by student)
+PARAM_SEG  equ 0x9000
+PARAM_OFF  equ 0x0000
+; layout:
+; [0] = mode (1 = bm, 2 = std)
 
 start:
     cli
@@ -13,37 +17,129 @@ start:
     mov es, ax
     mov ss, ax
     mov sp, 0x7C00
+    sti
 
-    ; Read kernel from floppy B: (DL = 1)
+    ; init params
+    mov ax, PARAM_SEG
+    mov es, ax
+    xor di, di
+    mov byte [es:di], 0
+
+    ; --- read keyboard stream until "bm" or "std" appears ---
+    ; state machine:
+    ; for "bm": waiting 'b' -> got 'b' -> got 'm'
+    ; for "std": waiting 's' -> got 's' -> got 't' -> got 'd'
+    xor bx, bx          ; BL = bm_state (0..1), BH = std_state (0..2)
+
+.kbd_loop:
+    xor ah, ah
+    int 0x16            ; wait key, AL = ASCII
+
+    ; ----- bm state -----
+    cmp bl, 0
+    jne .bm_need_m
+    cmp al, 'b'
+    jne .bm_reset_check
+    mov bl, 1
+    jmp .std_state
+
+.bm_need_m:
+    cmp al, 'm'
+    jne .bm_fail
+    ; matched "bm"
+    mov ax, PARAM_SEG
+    mov es, ax
+    mov byte [es:PARAM_OFF], 1
+    jmp load_kernel
+
+.bm_fail:
+    ; if current char is 'b' keep state=1 else reset
+    cmp al, 'b'
+    jne .bm_zero
+    mov bl, 1
+    jmp .std_state
+.bm_zero:
+    xor bl, bl
+
+.bm_reset_check:
+    ; nothing special, continue to std_state
+    jmp .std_state
+
+    ; ----- std state -----
+.std_state:
+    cmp bh, 0
+    jne .std_need_t
+    cmp al, 's'
+    jne .kbd_loop
+    mov bh, 1
+    jmp .kbd_loop
+
+.std_need_t:
+    cmp bh, 1
+    jne .std_need_d
+    cmp al, 't'
+    jne .std_fail_1
+    mov bh, 2
+    jmp .kbd_loop
+
+.std_need_d:
+    cmp al, 'd'
+    jne .std_fail_2
+    ; matched "std"
+    mov ax, PARAM_SEG
+    mov es, ax
+    mov byte [es:PARAM_OFF], 2
+    jmp load_kernel
+
+.std_fail_1:
+    ; if current char is 's' keep state=1 else reset
+    cmp al, 's'
+    jne .std_zero
+    mov bh, 1
+    jmp .kbd_loop
+.std_fail_2:
+    ; if current char is 's' restart at 1 else reset
+    cmp al, 's'
+    jne .std_zero
+    mov bh, 1
+    jmp .kbd_loop
+.std_zero:
+    xor bh, bh
+    jmp .kbd_loop
+
+; --- load kernel from floppy B: into 0x1000:0000 ---
+load_kernel:
+    cli
+
     mov dl, 0x01        ; drive B:
     mov ch, 0x00        ; cylinder
     mov dh, 0x00        ; head
     mov cl, 0x01        ; sector
-    mov al, 0x30        ; number of sectors (48)
+    mov al, 0x30        ; 48 sectors
     mov bx, 0x1000
     mov es, bx
-    xor bx, bx          ; ES:BX = 0x1000:0
+    xor bx, bx
     mov ah, 0x02
     int 0x13
-    jc error
+    jc disk_error
 
-    ; Enable A20
+    ; enable A20
     in al, 0x92
     or al, 2
     out 0x92, al
 
-    ; Load GDT
+    ; load GDT
     lgdt [gdt_desc]
 
-    ; Enter protected mode
+    ; enter protected mode
     mov eax, cr0
     or eax, 1
     mov cr0, eax
     jmp 0x08:pmode
 
-error:
+disk_error:
     hlt
-    jmp error
+    jmp disk_error
 
 use32
 pmode:
@@ -51,14 +147,17 @@ pmode:
     mov ds, ax
     mov es, ax
     mov ss, ax
+    mov fs, ax
+    mov gs, ax
     mov esp, 0x90000
 
-    call 0x00010000     ; call kernel
+    call 0x00010000     ; kernel entry (linked to 0x10000)
 
 halt:
     hlt
     jmp halt
 
+align 8
 gdt:
     dq 0
     dq 0x00CF9A000000FFFF

@@ -206,10 +206,13 @@ static const char scan_codes[128] =
         };
 
 static unsigned char boot_mode = 0; // 1=bm,2=std
+static volatile unsigned char shift_down = 0;
+static volatile unsigned char e0_prefix = 0;
 
 static int is_allowed(char c)
 {
     if (c >= 'a' && c <= 'z') return 1;
+    if (c >= 'A' && c <= 'Z') return 1;
     if (c >= '0' && c <= '9') return 1;
     if (c == ' ') return 1;
     if (c == '+') return 1;
@@ -221,7 +224,7 @@ static int is_allowed(char c)
 
 static void erase_last_char_on_screen()
 {
-    if (g_pos > 2) // keep "# "
+    if (g_pos > 2)
     {
         g_pos--;
         unsigned char* video = (unsigned char*)VIDEO_BUF_PTR;
@@ -234,7 +237,16 @@ static void erase_last_char_on_screen()
 
 static void on_key(unsigned char sc)
 {
-    if (sc == 14) // backspace
+    // handle extended scancodes prefix
+    if (sc == 0xE0) { e0_prefix = 1; return; }
+    if (e0_prefix) { e0_prefix = 0; return; } // ignore extended keys for now
+
+    // shift press / release
+    if (sc == 42 || sc == 54) { shift_down = 1; return; }
+    if (sc == 170 || sc == 182) { shift_down = 0; return; }
+
+    // backspace
+    if (sc == 14)
     {
         if (cmd_len == 0) return;
         cmd_len--;
@@ -243,7 +255,8 @@ static void on_key(unsigned char sc)
         return;
     }
 
-    if (sc == 28) // enter
+    // enter
+    if (sc == 28)
     {
         out_char(0x07, '\n');
         cmd[cmd_len] = 0;
@@ -251,12 +264,16 @@ static void on_key(unsigned char sc)
         return;
     }
 
-    if (sc >= 128) return;
+    // ignore other releases
+    if (sc & 0x80) return;
 
     char c = scan_codes[(unsigned int)sc];
     if (!c) return;
-    if (!is_allowed(c)) return;
 
+    if (shift_down && c >= 'a' && c <= 'z')
+        c = (char)(c - 'a' + 'A');
+
+    if (!is_allowed(c)) return;
     if (cmd_len >= 40) return;
 
     cmd[cmd_len++] = c;
@@ -269,7 +286,7 @@ extern "C" void keyb_process_keys()
     if (inb(KBD_STAT_PORT) & 0x01)
     {
         unsigned char sc = inb(KBD_DATA_PORT);
-        if (sc < 128) on_key(sc);
+        on_key(sc);
     }
 }
 
@@ -337,7 +354,7 @@ static void print_downcase(const char* s)
 
 static void print_titlize(const char* s)
 {
-    int new_word = 1; // at start we are at a new word
+    int new_word = 1;
     for (int i = 0; s[i]; i++)
     {
         char c = s[i];
@@ -382,24 +399,14 @@ static void cmd_shutdown()
 
 static void handle_command()
 {
-    // skip leading spaces
     int i = 0;
     while (cmd[i] == ' ') i++;
 
     const char* s = (const char*)&cmd[i];
     if (s[0] == 0) return;
 
-    if (streq(s, "info"))
-    {
-        cmd_info();
-        return;
-    }
-
-    if (streq(s, "shutdown"))
-    {
-        cmd_shutdown();
-        return;
-    }
+    if (streq(s, "info")) { cmd_info(); return; }
+    if (streq(s, "shutdown")) { cmd_shutdown(); return; }
 
     if (starts_with(s, "upcase "))
     {
@@ -439,7 +446,6 @@ extern "C" int kmain()
     pic_remap();
     intr_init();
 
-    // IRQ1 -> vector 0x21 after PIC remap
     intr_reg_handler(0x21, GDT_CS, 0x80 | IDT_TYPE_INTR, (intr_handler)keyb_handler);
 
     intr_start();

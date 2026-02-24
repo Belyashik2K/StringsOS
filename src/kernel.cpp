@@ -1,42 +1,32 @@
 __asm__("jmp kmain");
 
-// --------------- Constants ---------------
-// Video
+
 #define VIDEO_BUF_PTR   (0xB8000)
 #define VIDEO_WIDTH     (80)
 #define VIDEO_HEIGHT    (25)
 
-// GDT
 #define GDT_CS          (0x8)
 
-// IDT
 #define IDT_TYPE_INTR   (0x0E)
 
-// PIC
 #define PIC1_CMD        (0x20)
 #define PIC1_DATA       (0x21)
 #define PIC2_CMD        (0xA0)
 #define PIC2_DATA       (0xA1)
 
-// Keyboard
 #define KBD_DATA_PORT   (0x60)
 #define KBD_STAT_PORT   (0x64)
 
-// VGA Cursor
 #define CURSOR_PORT     (0x3D4)
 
-// Boot params
 #define BOOT_MODE_ADDR  (0x90000)
 
-// Command buffer
 #define CMD_MAX_LEN     (40)
 #define CMD_BUF_SIZE    (CMD_MAX_LEN + 1)
 
-// Template buffer
 #define TEMPLATE_MAX_LEN (40)
 #define TEMPLATE_BUF_SIZE (TEMPLATE_MAX_LEN + 1)
 
-// Keyboard scan codes
 #define SCANCODE_ESCAPE     (1)
 #define SCANCODE_BACKSPACE  (14)
 #define SCANCODE_ENTER      (28)
@@ -46,14 +36,11 @@ __asm__("jmp kmain");
 #define SCANCODE_SHIFT_R_REL (182)
 #define SCANCODE_E0_PREFIX  (0xE0)
 
-// Colors
 #define COLOR_DEFAULT       (0x07)
 
-// ACPI
 #define ACPI_PWR_CMD        (0x604)
 #define ACPI_PWR_VALUE      (0x2000)
 
-// Info strings
 #define INFO_AUTHOR         "Author: Sokolov Dmitrii Andreevich\n"
 #define INFO_OS             "OS: Linux\n"
 #define INFO_BOOTLOADER     "Bootloader: FASM\n"
@@ -63,7 +50,6 @@ __asm__("jmp kmain");
 #define INFO_MODE_STD       "std\n"
 #define INFO_MODE_UNKNOWN   "unknown\n"
 
-// --------------- Port I/O ---------------
 static inline unsigned char inb(unsigned short port) {
     unsigned char data;
     __asm__ volatile ("inb %w1, %b0" : "=a"(data) : "Nd"(port));
@@ -78,7 +64,6 @@ static inline void outw(unsigned short port, unsigned short data) {
     __asm__ volatile ("outw %w0, %w1" : : "a"(data), "Nd"(port));
 }
 
-// --------------- IDT ---------------
 typedef void (*intr_handler)();
 
 struct idt_entry {
@@ -126,7 +111,6 @@ static void intr_enable() { __asm__ volatile ("sti"); }
 
 static void intr_disable() { __asm__ volatile ("cli"); }
 
-// --------------- PIC ---------------
 static void pic_remap() {
     unsigned char a1 = inb(PIC1_DATA);
     unsigned char a2 = inb(PIC2_DATA);
@@ -148,11 +132,10 @@ static void pic_remap() {
 }
 
 static void pic_allow_only_keyboard() {
-    outb(PIC1_DATA, (unsigned char) (0xFF ^ 0x02)); // only IRQ1 enabled
+    outb(PIC1_DATA, (unsigned char) (0xFF ^ 0x02));
     outb(PIC2_DATA, 0xFF);
 }
 
-// --------------- VGA output ---------------
 struct VideoState {
     unsigned int cursor_row = 0;
     unsigned int cursor_col = 0;
@@ -226,7 +209,6 @@ static void prompt() {
     out_str(COLOR_DEFAULT, "# ");
 }
 
-// --------------- Command buffer ---------------
 static volatile char cmd[CMD_BUF_SIZE];
 static volatile unsigned int cmd_len = 0;
 static volatile unsigned char cmd_ready = 0;
@@ -237,7 +219,6 @@ static void cmd_reset() {
     cmd_ready = 0;
 }
 
-// --------------- Keyboard mapping ---------------
 static const char scan_codes[128] =
         {
                 0, 27,
@@ -253,7 +234,7 @@ static const char scan_codes[128] =
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '+', 0, 0, 0, 0
         };
 
-static unsigned char boot_mode = 0; // 1=bm,2=std
+static unsigned char boot_mode = 0;
 static volatile unsigned char shift_down = 0;
 static volatile unsigned char e0_prefix = 0;
 
@@ -288,18 +269,18 @@ static void on_key(unsigned char sc) {
     if (e0_prefix) {
         e0_prefix = 0;
         return;
-    } // ignore extended keys
+    }
 
     if (sc == SCANCODE_SHIFT_L || sc == SCANCODE_SHIFT_R) {
         shift_down = 1;
         return;
-    }     // shift press
+    }
     if (sc == SCANCODE_SHIFT_L_REL || sc == SCANCODE_SHIFT_R_REL) {
         shift_down = 0;
         return;
-    }   // shift release
+    }
 
-    if (sc == SCANCODE_BACKSPACE) // backspace
+    if (sc == SCANCODE_BACKSPACE)
     {
         if (cmd_len == 0) return;
         cmd_len--;
@@ -308,7 +289,7 @@ static void on_key(unsigned char sc) {
         return;
     }
 
-    if (sc == SCANCODE_ENTER) // enter
+    if (sc == SCANCODE_ENTER)
     {
         out_char(COLOR_DEFAULT, '\n');
         cmd[cmd_len] = 0;
@@ -316,7 +297,7 @@ static void on_key(unsigned char sc) {
         return;
     }
 
-    if (sc & 0x80) return; // other releases
+    if (sc & 0x80) return;
 
     char c = scan_codes[(unsigned int) sc];
     if (!c) return;
@@ -350,8 +331,6 @@ __attribute__((naked)) void keyb_handler() {
             );
 }
 
-// --------------- Helpers for commands ---------------
-
 static int str_length(const char *s) {
     int len = 0;
     while (s[len]) len++;
@@ -368,18 +347,15 @@ static char to_lower(char c) {
     return c;
 }
 
-// --------------- Template/Search data ---------------
 static volatile char template_buf[TEMPLATE_BUF_SIZE];
 static volatile unsigned int template_len = 0;
 static volatile unsigned char template_loaded = 0;
 
-// Horspool shift table (bm mode)
 static unsigned char bm_shift[256];
 
 static void bm_build_shift_table() {
     unsigned int m = template_len;
 
-    // Для m=0/1 таблица не нужна, но сделаем безопасно
     if (m == 0) {
         for (int i = 0; i < 256; i++) bm_shift[i] = 0;
         return;
@@ -389,10 +365,8 @@ static void bm_build_shift_table() {
         return;
     }
 
-    // Как в лабе: default = m-1 (а не m)
     for (int i = 0; i < 256; i++) bm_shift[i] = (unsigned char) (m - 1);
 
-    // Для всех символов кроме последнего: shift = (m-1-i)
     for (unsigned int i = 0; i + 1 < m; i++) {
         unsigned char ch = (unsigned char) template_buf[i];
         bm_shift[ch] = (unsigned char) ((m - 1) - i);
@@ -410,7 +384,6 @@ static void print_template_loaded() {
 static void print_bm_info() {
     out_str(COLOR_DEFAULT, "BM info:\n");
 
-    // print unique chars from template in order, like: s:5 t:4 ...
     unsigned char seen[256];
     for (int i = 0; i < 256; i++) seen[i] = 0;
 
@@ -427,7 +400,6 @@ static void print_bm_info() {
     out_char(COLOR_DEFAULT, '\n');
 }
 
-// naive search (std)
 static int std_search(const char *text, unsigned int n, const char *pat, unsigned int m) {
     if (m == 0) return 0;
     if (m > n) return -1;
@@ -440,7 +412,6 @@ static int std_search(const char *text, unsigned int n, const char *pat, unsigne
     return -1;
 }
 
-// Horspool search (bm)
 static int bm_search(const char *text, unsigned int n, const char *pat, unsigned int m) {
     if (m == 0) return 0;
     if (m > n) return -1;
@@ -454,14 +425,13 @@ static int bm_search(const char *text, unsigned int n, const char *pat, unsigned
 
         unsigned char c = (unsigned char) text[i];
         unsigned int sh = (unsigned int) bm_shift[c];
-        if (sh == 0) sh = 1; // на всякий случай
+        if (sh == 0) sh = 1;
         i += sh;
     }
     return -1;
 }
 
 
-// --------------- Commands ---------------
 typedef void (*cmd_handler_t)(const char *);
 
 struct Command {
@@ -516,11 +486,9 @@ static void cmd_titlize(const char *s) {
 }
 
 static void cmd_template(const char *s) {
-    // load template from s into template_buf (max TEMPLATE_MAX_LEN)
     template_len = 0;
     for (int i = 0; i < TEMPLATE_BUF_SIZE; i++) template_buf[i] = 0;
 
-    // skip leading spaces
     int i = 0;
     while (s[i] == ' ') i++;
 
@@ -537,7 +505,7 @@ static void cmd_template(const char *s) {
 
     print_template_loaded();
 
-    if (boot_mode == 1) // bm
+    if (boot_mode == 1)
     {
         bm_build_shift_table();
         print_bm_info();
@@ -550,7 +518,6 @@ static void cmd_search(const char *s) {
         return;
     }
 
-    // copy search string into local buffer (max 40)
     char text[TEMPLATE_BUF_SIZE];
     unsigned int n = 0;
 
@@ -562,7 +529,7 @@ static void cmd_search(const char *s) {
     text[n] = 0;
 
     int pos;
-    if (boot_mode == 1) // bm
+    if (boot_mode == 1)
         pos = bm_search(text, n, (const char *) template_buf, template_len);
     else
         pos = std_search(text, n, (const char *) template_buf, template_len);
@@ -629,9 +596,8 @@ static void dispatch_command(const char *input) {
     out_str(COLOR_DEFAULT, "Unknown command\n");
 }
 
-// --------------- Entry ---------------
 extern "C" int kmain() {
-    boot_mode = *(volatile unsigned char *) BOOT_MODE_ADDR; // 1=bm,2=std
+    boot_mode = *(volatile unsigned char *) BOOT_MODE_ADDR;
 
     screen_clear();
     out_str(COLOR_DEFAULT, "Welcome to StringsOS!\n");
@@ -662,6 +628,4 @@ extern "C" int kmain() {
         }
         __asm__ volatile ("hlt");
     }
-
-    return 0;
 }

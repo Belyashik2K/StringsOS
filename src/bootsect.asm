@@ -25,6 +25,23 @@ start:
     xor di, di
     mov byte [es:di], 0
 
+    ; move cursor to top-left (0, 0)
+    mov ah, 0x02
+    mov bh, 0x00
+    mov dx, 0x0000
+    int 0x10
+
+    ; clear screen (BIOS scroll up entire window)
+    mov ax, 0x0600      ; scroll up entire window
+    mov bh, 0x07        ; attribute (white on black)
+    mov cx, 0x0000      ; upper-left corner
+    mov dx, 0x184F      ; lower-right corner (80x25)
+    int 0x10
+
+    ; print prompt "Enter algorithm (bm/std): "
+    mov si, prompt_msg
+    call print_string
+
     ; --- read keyboard stream until "bm" or "std" appears ---
     ; state machine:
     ; for "bm": waiting 'b' -> got 'b' -> got 'm'
@@ -166,6 +183,23 @@ gdt:
 gdt_desc:
     dw gdt_desc - gdt - 1
     dd gdt
+
+; print_string: prints null-terminated string at DS:SI using BIOS teletype
+print_string:
+    pusha
+.ps_loop:
+    lodsb
+    test al, al
+    jz .ps_done
+    mov ah, 0x0E
+    mov bh, 0x00
+    int 0x10
+    jmp .ps_loop
+.ps_done:
+    popa
+    ret
+
+prompt_msg db "Enter algorithm (bm/std): ", 0
 
 times 510 - ($ - $$) db 0
 dw 0xAA55

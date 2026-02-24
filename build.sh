@@ -9,7 +9,8 @@ echo "[0/6] Preparing build directory..."
 mkdir -p $BUILD_DIR
 
 echo "[1/6] Assembling bootloader..."
-fasm $SRC_DIR/bootsect.asm $BUILD_DIR/bootsect.bin
+as --32 $SRC_DIR/bootsect.asm -o $BUILD_DIR/bootsect.o
+ld -m elf_i386 --oformat binary $BUILD_DIR/bootsect.o -o $BUILD_DIR/bootsect.bin
 
 echo "[2/6] Compiling kernel (C++)..."
 g++ -m32 -ffreestanding -fno-pie -fno-exceptions -fno-rtti \
@@ -17,9 +18,11 @@ g++ -m32 -ffreestanding -fno-pie -fno-exceptions -fno-rtti \
     -c $SRC_DIR/kernel.cpp -o $BUILD_DIR/kernel.o
 
 echo "[3/6] Linking kernel at 0x10000..."
-ld -m elf_i386 -Ttext 0x10000 \
+ld -m elf_i386 -Ttext 0x7C00 \
    --oformat binary \
-   $BUILD_DIR/kernel.o -o $BUILD_DIR/kernel.bin
+   -e _start \
+   $BUILD_DIR/bootsect.o \
+   -o $BUILD_DIR/bootsect.bin
 
 echo "[4/6] Padding kernel to 48 sectors (24576 bytes)..."
 size=$(stat -c%s $BUILD_DIR/kernel.bin)

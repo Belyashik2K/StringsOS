@@ -143,15 +143,20 @@ static void pic_allow_only_keyboard() {
 }
 
 // --------------- VGA output ---------------
-static unsigned int g_str = 0;
-static unsigned int g_pos = 0;
+struct VideoState {
+    unsigned int cursor_row = 0;
+    unsigned int cursor_col = 0;
+};
+static VideoState g_video;
 
-static void cursor_moveto(unsigned int strnum, unsigned int pos) {
-    unsigned short new_pos = (unsigned short) (strnum * VIDEO_WIDTH + pos);
+static void cursor_moveto(unsigned int row, unsigned int col) {
+    unsigned short new_pos = (unsigned short) (row * VIDEO_WIDTH + col);
     outb(CURSOR_PORT, 0x0F);
     outb(CURSOR_PORT + 1, (unsigned char) (new_pos & 0xFF));
     outb(CURSOR_PORT, 0x0E);
     outb(CURSOR_PORT + 1, (unsigned char) ((new_pos >> 8) & 0xFF));
+    g_video.cursor_row = row;
+    g_video.cursor_col = col;
 }
 
 static void screen_clear() {
@@ -160,32 +165,32 @@ static void screen_clear() {
         video[i] = ' ';
         video[i + 1] = COLOR_DEFAULT;
     }
-    g_str = 0;
-    g_pos = 0;
-    cursor_moveto(g_str, g_pos);
+    g_video.cursor_row = 0;
+    g_video.cursor_col = 0;
+    cursor_moveto(g_video.cursor_row, g_video.cursor_col);
 }
 
 static void out_char(int color, unsigned char c) {
     if (c == '\n') {
-        g_pos = 0;
-        g_str++;
-        if (g_str >= VIDEO_HEIGHT) screen_clear();
-        cursor_moveto(g_str, g_pos);
+        g_video.cursor_col = 0;
+        g_video.cursor_row++;
+        if (g_video.cursor_row >= VIDEO_HEIGHT) screen_clear();
+        cursor_moveto(g_video.cursor_row, g_video.cursor_col);
         return;
     }
 
     unsigned char *video = (unsigned char *) VIDEO_BUF_PTR;
-    unsigned int idx = 2 * (g_str * VIDEO_WIDTH + g_pos);
+    unsigned int idx = 2 * (g_video.cursor_row * VIDEO_WIDTH + g_video.cursor_col);
     video[idx] = c;
     video[idx + 1] = (unsigned char) color;
 
-    g_pos++;
-    if (g_pos >= VIDEO_WIDTH) {
-        g_pos = 0;
-        g_str++;
-        if (g_str >= VIDEO_HEIGHT) screen_clear();
+    g_video.cursor_col++;
+    if (g_video.cursor_col >= VIDEO_WIDTH) {
+        g_video.cursor_col = 0;
+        g_video.cursor_row++;
+        if (g_video.cursor_row >= VIDEO_HEIGHT) screen_clear();
     }
-    cursor_moveto(g_str, g_pos);
+    cursor_moveto(g_video.cursor_row, g_video.cursor_col);
 }
 
 static void out_str(int color, const char *s) {
@@ -255,13 +260,13 @@ static int is_allowed(char c) {
 }
 
 static void erase_last_char_on_screen() {
-    if (g_pos > 2) {
-        g_pos--;
+    if (g_video.cursor_col > 0) {
+        g_video.cursor_col--;
         unsigned char *video = (unsigned char *) VIDEO_BUF_PTR;
-        unsigned int idx = 2 * (g_str * VIDEO_WIDTH + g_pos);
+        unsigned int idx = 2 * (g_video.cursor_row * VIDEO_WIDTH + g_video.cursor_col);
         video[idx] = ' ';
         video[idx + 1] = COLOR_DEFAULT;
-        cursor_moveto(g_str, g_pos);
+        cursor_moveto(g_video.cursor_row, g_video.cursor_col);
     }
 }
 
@@ -623,8 +628,8 @@ extern "C" int kmain() {
     screen_clear();
     out_str(COLOR_DEFAULT, "Welcome to StringsOS!\n");
     prompt();
-    g_pos = 2;
-    cursor_moveto(g_str, g_pos);
+    g_video.cursor_col = 2;
+    cursor_moveto(g_video.cursor_row, g_video.cursor_col);
 
     cmd_reset();
 
@@ -644,8 +649,8 @@ extern "C" int kmain() {
             dispatch_command((const char *) cmd);
             cmd_reset();
             prompt();
-            g_pos = 2;
-            cursor_moveto(g_str, g_pos);
+            g_video.cursor_col = 2;
+            cursor_moveto(g_video.cursor_row, g_video.cursor_col);
         }
         __asm__ volatile ("hlt");
     }

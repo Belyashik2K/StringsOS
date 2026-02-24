@@ -53,6 +53,16 @@ __asm__("jmp kmain");
 #define ACPI_PWR_CMD        (0x604)
 #define ACPI_PWR_VALUE      (0x2000)
 
+// Info strings
+#define INFO_AUTHOR         "Author: Sokolov Dmitrii Andreevich\n"
+#define INFO_OS             "OS: Linux\n"
+#define INFO_BOOTLOADER     "Bootloader: FASM\n"
+#define INFO_COMPILER       "Compiler: g++ (gcc)\n"
+#define INFO_MODE           "Mode: "
+#define INFO_MODE_BM        "bm\n"
+#define INFO_MODE_STD       "std\n"
+#define INFO_MODE_UNKNOWN   "unknown\n"
+
 // --------------- Port I/O ---------------
 static inline unsigned char inb(unsigned short port) {
     unsigned char data;
@@ -460,14 +470,14 @@ struct Command {
 };
 
 static void cmd_info(const char *) {
-    out_str(COLOR_DEFAULT, "Author: Sokolov Dmitrii Andreevich\n");
-    out_str(COLOR_DEFAULT, "OS: Linux\n");
-    out_str(COLOR_DEFAULT, "Bootloader: FASM\n");
-    out_str(COLOR_DEFAULT, "Compiler: g++ (gcc)\n");
-    out_str(COLOR_DEFAULT, "Mode: ");
-    if (boot_mode == 1) out_str(COLOR_DEFAULT, "bm\n");
-    else if (boot_mode == 2) out_str(COLOR_DEFAULT, "std\n");
-    else out_str(COLOR_DEFAULT, "unknown\n");
+    out_str(COLOR_DEFAULT, INFO_AUTHOR);
+    out_str(COLOR_DEFAULT, INFO_OS);
+    out_str(COLOR_DEFAULT, INFO_BOOTLOADER);
+    out_str(COLOR_DEFAULT, INFO_COMPILER);
+    out_str(COLOR_DEFAULT, INFO_MODE);
+    if (boot_mode == 1) out_str(COLOR_DEFAULT, INFO_MODE_BM);
+    else if (boot_mode == 2) out_str(COLOR_DEFAULT, INFO_MODE_STD);
+    else out_str(COLOR_DEFAULT, INFO_MODE_UNKNOWN);
 }
 
 static void cmd_shutdown(const char *) {
@@ -582,8 +592,7 @@ static const Command g_commands[] = {
         {"search",   cmd_search},
 };
 
-static bool cmd_name_matches(const char* input, const char* name, int name_len)
-{
+static bool cmd_name_matches(const char *input, const char *name, int name_len) {
     for (int j = 0; j < name_len; j++) {
         if (input[j] != name[j]) {
             return false;
@@ -593,8 +602,7 @@ static bool cmd_name_matches(const char* input, const char* name, int name_len)
     return (next == 0 || next == ' ');
 }
 
-static const Command* find_command(const char* input)
-{
+static const Command *find_command(const char *input) {
     for (int i = 0; i < 7; i++) {
         const Command &cmd = g_commands[i];
         int name_len = str_length(cmd.name);
@@ -609,7 +617,7 @@ static void dispatch_command(const char *input) {
     while (*input == ' ') input++;
     if (*input == 0) return;
 
-    const Command* cmd = find_command(input);
+    const Command *cmd = find_command(input);
     if (cmd != nullptr) {
         int name_len = str_length(cmd->name);
         const char *args = input + name_len;

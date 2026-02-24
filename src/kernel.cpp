@@ -54,56 +54,50 @@ __asm__("jmp kmain");
 #define ACPI_PWR_VALUE      (0x2000)
 
 // --------------- Port I/O ---------------
-static inline unsigned char inb(unsigned short port)
-{
+static inline unsigned char inb(unsigned short port) {
     unsigned char data;
     __asm__ volatile ("inb %w1, %b0" : "=a"(data) : "Nd"(port));
     return data;
 }
-static inline void outb(unsigned short port, unsigned char data)
-{
+
+static inline void outb(unsigned short port, unsigned char data) {
     __asm__ volatile ("outb %b0, %w1" : : "a"(data), "Nd"(port));
 }
-static inline void outw(unsigned short port, unsigned short data)
-{
+
+static inline void outw(unsigned short port, unsigned short data) {
     __asm__ volatile ("outw %w0, %w1" : : "a"(data), "Nd"(port));
 }
 
 // --------------- IDT ---------------
 typedef void (*intr_handler)();
 
-struct idt_entry
-{
+struct idt_entry {
     unsigned short base_lo;
     unsigned short segm_sel;
-    unsigned char  always0;
-    unsigned char  flags;
+    unsigned char always0;
+    unsigned char flags;
     unsigned short base_hi;
 } __attribute__((packed));
 
-struct idt_ptr
-{
+struct idt_ptr {
     unsigned short limit;
     unsigned int base;
 } __attribute__((packed));
 
 static idt_entry g_idt[256];
-static idt_ptr   g_idtp;
+static idt_ptr g_idtp;
 
-static void intr_reg_handler(int num, unsigned short segm_sel, unsigned short flags, intr_handler hndlr)
-{
-    unsigned int addr = (unsigned int)hndlr;
-    g_idt[num].base_lo  = (unsigned short)(addr & 0xFFFF);
+static void intr_reg_handler(int num, unsigned short segm_sel, unsigned short flags, intr_handler hndlr) {
+    unsigned int addr = (unsigned int) hndlr;
+    g_idt[num].base_lo = (unsigned short) (addr & 0xFFFF);
     g_idt[num].segm_sel = segm_sel;
-    g_idt[num].always0  = 0;
-    g_idt[num].flags    = (unsigned char)flags;
-    g_idt[num].base_hi  = (unsigned short)((addr >> 16) & 0xFFFF);
+    g_idt[num].always0 = 0;
+    g_idt[num].flags = (unsigned char) flags;
+    g_idt[num].base_hi = (unsigned short) ((addr >> 16) & 0xFFFF);
 }
 
-static void intr_init()
-{
-    for (int i = 0; i < 256; i++)
-    {
+static void intr_init() {
+    for (int i = 0; i < 256; i++) {
         g_idt[i].base_lo = 0;
         g_idt[i].segm_sel = 0;
         g_idt[i].always0 = 0;
@@ -112,19 +106,18 @@ static void intr_init()
     }
 }
 
-static void intr_start()
-{
-    g_idtp.base  = (unsigned int)(&g_idt[0]);
-    g_idtp.limit = (unsigned short)(sizeof(g_idt) - 1);
+static void intr_start() {
+    g_idtp.base = (unsigned int) (&g_idt[0]);
+    g_idtp.limit = (unsigned short) (sizeof(g_idt) - 1);
     __asm__ volatile ("lidt %0" : : "m"(g_idtp));
 }
 
-static void intr_enable()  { __asm__ volatile ("sti"); }
+static void intr_enable() { __asm__ volatile ("sti"); }
+
 static void intr_disable() { __asm__ volatile ("cli"); }
 
 // --------------- PIC ---------------
-static void pic_remap()
-{
+static void pic_remap() {
     unsigned char a1 = inb(PIC1_DATA);
     unsigned char a2 = inb(PIC2_DATA);
 
@@ -144,9 +137,8 @@ static void pic_remap()
     outb(PIC2_DATA, a2);
 }
 
-static void pic_allow_only_keyboard()
-{
-    outb(PIC1_DATA, (unsigned char)(0xFF ^ 0x02)); // only IRQ1 enabled
+static void pic_allow_only_keyboard() {
+    outb(PIC1_DATA, (unsigned char) (0xFF ^ 0x02)); // only IRQ1 enabled
     outb(PIC2_DATA, 0xFF);
 }
 
@@ -154,20 +146,17 @@ static void pic_allow_only_keyboard()
 static unsigned int g_str = 0;
 static unsigned int g_pos = 0;
 
-static void cursor_moveto(unsigned int strnum, unsigned int pos)
-{
-    unsigned short new_pos = (unsigned short)(strnum * VIDEO_WIDTH + pos);
+static void cursor_moveto(unsigned int strnum, unsigned int pos) {
+    unsigned short new_pos = (unsigned short) (strnum * VIDEO_WIDTH + pos);
     outb(CURSOR_PORT, 0x0F);
-    outb(CURSOR_PORT + 1, (unsigned char)(new_pos & 0xFF));
+    outb(CURSOR_PORT + 1, (unsigned char) (new_pos & 0xFF));
     outb(CURSOR_PORT, 0x0E);
-    outb(CURSOR_PORT + 1, (unsigned char)((new_pos >> 8) & 0xFF));
+    outb(CURSOR_PORT + 1, (unsigned char) ((new_pos >> 8) & 0xFF));
 }
 
-static void screen_clear()
-{
-    unsigned char* video = (unsigned char*)VIDEO_BUF_PTR;
-    for (int i = 0; i < VIDEO_WIDTH * VIDEO_HEIGHT * 2; i += 2)
-    {
+static void screen_clear() {
+    unsigned char *video = (unsigned char *) VIDEO_BUF_PTR;
+    for (int i = 0; i < VIDEO_WIDTH * VIDEO_HEIGHT * 2; i += 2) {
         video[i] = ' ';
         video[i + 1] = COLOR_DEFAULT;
     }
@@ -176,10 +165,8 @@ static void screen_clear()
     cursor_moveto(g_str, g_pos);
 }
 
-static void out_char(int color, unsigned char c)
-{
-    if (c == '\n')
-    {
+static void out_char(int color, unsigned char c) {
+    if (c == '\n') {
         g_pos = 0;
         g_str++;
         if (g_str >= VIDEO_HEIGHT) screen_clear();
@@ -187,14 +174,13 @@ static void out_char(int color, unsigned char c)
         return;
     }
 
-    unsigned char* video = (unsigned char*)VIDEO_BUF_PTR;
+    unsigned char *video = (unsigned char *) VIDEO_BUF_PTR;
     unsigned int idx = 2 * (g_str * VIDEO_WIDTH + g_pos);
     video[idx] = c;
-    video[idx + 1] = (unsigned char)color;
+    video[idx + 1] = (unsigned char) color;
 
     g_pos++;
-    if (g_pos >= VIDEO_WIDTH)
-    {
+    if (g_pos >= VIDEO_WIDTH) {
         g_pos = 0;
         g_str++;
         if (g_str >= VIDEO_HEIGHT) screen_clear();
@@ -202,27 +188,26 @@ static void out_char(int color, unsigned char c)
     cursor_moveto(g_str, g_pos);
 }
 
-static void out_str(int color, const char* s)
-{
+static void out_str(int color, const char *s) {
     for (int i = 0; s[i]; i++)
-        out_char(color, (unsigned char)s[i]);
+        out_char(color, (unsigned char) s[i]);
 }
 
-static void out_uint(int color, unsigned int x)
-{
+static void out_uint(int color, unsigned int x) {
     char buf[11];
     int n = 0;
-    if (x == 0) { out_char(color, '0'); return; }
-    while (x > 0 && n < 10)
-    {
-        buf[n++] = (char)('0' + (x % 10));
+    if (x == 0) {
+        out_char(color, '0');
+        return;
+    }
+    while (x > 0 && n < 10) {
+        buf[n++] = (char) ('0' + (x % 10));
         x /= 10;
     }
-    for (int i = n - 1; i >= 0; i--) out_char(color, (unsigned char)buf[i]);
+    for (int i = n - 1; i >= 0; i--) out_char(color, (unsigned char) buf[i]);
 }
 
-static void prompt()
-{
+static void prompt() {
     out_str(COLOR_DEFAULT, "# ");
 }
 
@@ -231,8 +216,7 @@ static volatile char cmd[CMD_BUF_SIZE];
 static volatile unsigned int cmd_len = 0;
 static volatile unsigned char cmd_ready = 0;
 
-static void cmd_reset()
-{
+static void cmd_reset() {
     for (int i = 0; i < CMD_BUF_SIZE; i++) cmd[i] = 0;
     cmd_len = 0;
     cmd_ready = 0;
@@ -242,24 +226,23 @@ static void cmd_reset()
 static const char scan_codes[128] =
         {
                 0, 27,
-                '1','2','3','4','5','6','7','8','9','0','-','=',
+                '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
                 8, 0,
-                'q','w','e','r','t','y','u','i','o','p','[',']',
+                'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']',
                 0, 0,
-                'a','s','d','f','g','h','j','k','l',';','\'','`',
-                0, '\\','z','x','c','v','b','n','m',',','.','/',
+                'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`',
+                0, '\\', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/',
                 0, '*', 0, ' ',
-                0,0,0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,0,0,0,'+',0,0,0,0
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '+', 0, 0, 0, 0
         };
 
 static unsigned char boot_mode = 0; // 1=bm,2=std
 static volatile unsigned char shift_down = 0;
 static volatile unsigned char e0_prefix = 0;
 
-static int is_allowed(char c)
-{
+static int is_allowed(char c) {
     if (c >= 'a' && c <= 'z') return 1;
     if (c >= 'A' && c <= 'Z') return 1;
     if (c >= '0' && c <= '9') return 1;
@@ -271,12 +254,10 @@ static int is_allowed(char c)
     return 0;
 }
 
-static void erase_last_char_on_screen()
-{
-    if (g_pos > 2)
-    {
+static void erase_last_char_on_screen() {
+    if (g_pos > 2) {
         g_pos--;
-        unsigned char* video = (unsigned char*)VIDEO_BUF_PTR;
+        unsigned char *video = (unsigned char *) VIDEO_BUF_PTR;
         unsigned int idx = 2 * (g_str * VIDEO_WIDTH + g_pos);
         video[idx] = ' ';
         video[idx + 1] = COLOR_DEFAULT;
@@ -284,13 +265,24 @@ static void erase_last_char_on_screen()
     }
 }
 
-static void on_key(unsigned char sc)
-{
-    if (sc == SCANCODE_E0_PREFIX) { e0_prefix = 1; return; }
-    if (e0_prefix) { e0_prefix = 0; return; } // ignore extended keys
+static void on_key(unsigned char sc) {
+    if (sc == SCANCODE_E0_PREFIX) {
+        e0_prefix = 1;
+        return;
+    }
+    if (e0_prefix) {
+        e0_prefix = 0;
+        return;
+    } // ignore extended keys
 
-    if (sc == SCANCODE_SHIFT_L || sc == SCANCODE_SHIFT_R) { shift_down = 1; return; }     // shift press
-    if (sc == SCANCODE_SHIFT_L_REL || sc == SCANCODE_SHIFT_R_REL) { shift_down = 0; return; }   // shift release
+    if (sc == SCANCODE_SHIFT_L || sc == SCANCODE_SHIFT_R) {
+        shift_down = 1;
+        return;
+    }     // shift press
+    if (sc == SCANCODE_SHIFT_L_REL || sc == SCANCODE_SHIFT_R_REL) {
+        shift_down = 0;
+        return;
+    }   // shift release
 
     if (sc == SCANCODE_BACKSPACE) // backspace
     {
@@ -311,31 +303,28 @@ static void on_key(unsigned char sc)
 
     if (sc & 0x80) return; // other releases
 
-    char c = scan_codes[(unsigned int)sc];
+    char c = scan_codes[(unsigned int) sc];
     if (!c) return;
 
     if (shift_down && c >= 'a' && c <= 'z')
-        c = (char)(c - 'a' + 'A');
+        c = (char) (c - 'a' + 'A');
 
     if (!is_allowed(c)) return;
     if (cmd_len >= CMD_MAX_LEN) return;
 
     cmd[cmd_len++] = c;
     cmd[cmd_len] = 0;
-    out_char(COLOR_DEFAULT, (unsigned char)c);
+    out_char(COLOR_DEFAULT, (unsigned char) c);
 }
 
-extern "C" void keyb_process_keys()
-{
-    if (inb(KBD_STAT_PORT) & 0x01)
-    {
+extern "C" void keyb_process_keys() {
+    if (inb(KBD_STAT_PORT) & 0x01) {
         unsigned char sc = inb(KBD_DATA_PORT);
         on_key(sc);
     }
 }
 
-__attribute__((naked)) void keyb_handler()
-{
+__attribute__((naked)) void keyb_handler() {
     __asm__ volatile (
             "pusha \n"
             "call keyb_process_keys \n"
@@ -347,72 +336,30 @@ __attribute__((naked)) void keyb_handler()
 }
 
 // --------------- Helpers for commands ---------------
-static int streq(const char* a, const char* b)
-{
-    int i = 0;
-    while (a[i] && b[i])
-    {
-        if (a[i] != b[i]) return 0;
-        i++;
-    }
-    return (a[i] == 0 && b[i] == 0);
+
+static int str_length(const char *s) {
+    int len = 0;
+    while (s[len]) len++;
+    return len;
 }
 
-static int starts_with(const char* s, const char* pfx)
-{
+static int starts_with(const char *s, const char *pfx) {
     int i = 0;
-    while (pfx[i])
-    {
+    while (pfx[i]) {
         if (s[i] != pfx[i]) return 0;
         i++;
     }
     return 1;
 }
 
-static char to_upper(char c)
-{
-    if (c >= 'a' && c <= 'z') return (char)(c - 'a' + 'A');
-    return c;
-}
-static char to_lower(char c)
-{
-    if (c >= 'A' && c <= 'Z') return (char)(c - 'A' + 'a');
+static char to_upper(char c) {
+    if (c >= 'a' && c <= 'z') return (char) (c - 'a' + 'A');
     return c;
 }
 
-static void print_upcase(const char* s)
-{
-    for (int i = 0; s[i]; i++) out_char(COLOR_DEFAULT, (unsigned char)to_upper(s[i]));
-    out_char(COLOR_DEFAULT, '\n');
-}
-static void print_downcase(const char* s)
-{
-    for (int i = 0; s[i]; i++) out_char(COLOR_DEFAULT, (unsigned char)to_lower(s[i]));
-    out_char(COLOR_DEFAULT, '\n');
-}
-static void print_titlize(const char* s)
-{
-    int new_word = 1;
-    for (int i = 0; s[i]; i++)
-    {
-        char c = s[i];
-        if (c == ' ')
-        {
-            new_word = 1;
-            out_char(COLOR_DEFAULT, ' ');
-            continue;
-        }
-        if (new_word)
-        {
-            out_char(COLOR_DEFAULT, (unsigned char)to_upper(to_lower(c)));
-            new_word = 0;
-        }
-        else
-        {
-            out_char(COLOR_DEFAULT, (unsigned char)to_lower(c));
-        }
-    }
-    out_char(COLOR_DEFAULT, '\n');
+static char to_lower(char c) {
+    if (c >= 'A' && c <= 'Z') return (char) (c - 'A' + 'a');
+    return c;
 }
 
 // --------------- Template/Search data ---------------
@@ -423,95 +370,84 @@ static volatile unsigned char template_loaded = 0;
 // Horspool shift table (bm mode)
 static unsigned char bm_shift[256];
 
-static void bm_build_shift_table()
-{
+static void bm_build_shift_table() {
     unsigned int m = template_len;
 
     // Для m=0/1 таблица не нужна, но сделаем безопасно
-    if (m == 0)
-    {
+    if (m == 0) {
         for (int i = 0; i < 256; i++) bm_shift[i] = 0;
         return;
     }
-    if (m == 1)
-    {
+    if (m == 1) {
         for (int i = 0; i < 256; i++) bm_shift[i] = 1;
         return;
     }
 
     // Как в лабе: default = m-1 (а не m)
-    for (int i = 0; i < 256; i++) bm_shift[i] = (unsigned char)(m - 1);
+    for (int i = 0; i < 256; i++) bm_shift[i] = (unsigned char) (m - 1);
 
     // Для всех символов кроме последнего: shift = (m-1-i)
-    for (unsigned int i = 0; i + 1 < m; i++)
-    {
-        unsigned char ch = (unsigned char)template_buf[i];
-        bm_shift[ch] = (unsigned char)((m - 1) - i);
+    for (unsigned int i = 0; i + 1 < m; i++) {
+        unsigned char ch = (unsigned char) template_buf[i];
+        bm_shift[ch] = (unsigned char) ((m - 1) - i);
     }
 }
 
 
-static void print_template_loaded()
-{
+static void print_template_loaded() {
     out_str(COLOR_DEFAULT, "Template '");
     for (unsigned int i = 0; i < template_len; i++)
-        out_char(COLOR_DEFAULT, (unsigned char)template_buf[i]);
+        out_char(COLOR_DEFAULT, (unsigned char) template_buf[i]);
     out_str(COLOR_DEFAULT, "' loaded.\n");
 }
 
-static void print_bm_info()
-{
+static void print_bm_info() {
     out_str(COLOR_DEFAULT, "BM info:\n");
 
     // print unique chars from template in order, like: s:5 t:4 ...
     unsigned char seen[256];
     for (int i = 0; i < 256; i++) seen[i] = 0;
 
-    for (unsigned int i = 0; i < template_len; i++)
-    {
-        unsigned char ch = (unsigned char)template_buf[i];
+    for (unsigned int i = 0; i < template_len; i++) {
+        unsigned char ch = (unsigned char) template_buf[i];
         if (seen[ch]) continue;
         seen[ch] = 1;
 
-        out_char(COLOR_DEFAULT, (unsigned char)ch);
+        out_char(COLOR_DEFAULT, (unsigned char) ch);
         out_char(COLOR_DEFAULT, ':');
-        out_uint(COLOR_DEFAULT, (unsigned int)bm_shift[ch]);
+        out_uint(COLOR_DEFAULT, (unsigned int) bm_shift[ch]);
         out_char(COLOR_DEFAULT, ' ');
     }
     out_char(COLOR_DEFAULT, '\n');
 }
 
 // naive search (std)
-static int std_search(const char* text, unsigned int n, const char* pat, unsigned int m)
-{
+static int std_search(const char *text, unsigned int n, const char *pat, unsigned int m) {
     if (m == 0) return 0;
     if (m > n) return -1;
 
-    for (unsigned int i = 0; i + m <= n; i++)
-    {
+    for (unsigned int i = 0; i + m <= n; i++) {
         unsigned int j = 0;
         while (j < m && text[i + j] == pat[j]) j++;
-        if (j == m) return (int)i;
+        if (j == m) return (int) i;
     }
     return -1;
 }
 
 // Horspool search (bm)
-static int bm_search(const char* text, unsigned int n, const char* pat, unsigned int m)
-{
+static int bm_search(const char *text, unsigned int n, const char *pat, unsigned int m) {
     if (m == 0) return 0;
     if (m > n) return -1;
 
     unsigned int i = m - 1;
-    while (i < n)
-    {
+    while (i < n) {
         unsigned int k = 0;
         while (k < m && pat[m - 1 - k] == text[i - k]) k++;
         if (k == m)
-            return (int)(i - (m - 1));
+            return (int) (i - (m - 1));
 
-        unsigned char c = (unsigned char)text[i];
-        unsigned int sh = (unsigned int)bm_shift[c];
+        unsigned char c = (unsigned char) text[i];
+        unsigned int sh = (unsigned int) bm_shift[c];
         if (sh == 0) sh = 1; // на всякий случай
         i += sh;
     }
@@ -520,8 +456,14 @@ static int bm_search(const char* text, unsigned int n, const char* pat, unsigned
 
 
 // --------------- Commands ---------------
-static void cmd_info()
-{
+typedef void (*cmd_handler_t)(const char *);
+
+struct Command {
+    const char *name;
+    cmd_handler_t handler;
+};
+
+static void cmd_info(const char *) {
     out_str(COLOR_DEFAULT, "Author: Sokolov Dmitrii Andreevich\n");
     out_str(COLOR_DEFAULT, "OS: Linux\n");
     out_str(COLOR_DEFAULT, "Bootloader: FASM\n");
@@ -532,15 +474,42 @@ static void cmd_info()
     else out_str(COLOR_DEFAULT, "unknown\n");
 }
 
-static void cmd_shutdown()
-{
+static void cmd_shutdown(const char *) {
     out_str(COLOR_DEFAULT, "Shutting down...\n");
     outw(ACPI_PWR_CMD, ACPI_PWR_VALUE);
     for (;;) __asm__ volatile ("hlt");
 }
 
-static void cmd_template(const char* s)
-{
+static void cmd_upcase(const char *s) {
+    for (int i = 0; s[i]; i++) out_char(COLOR_DEFAULT, (unsigned char) to_upper(s[i]));
+    out_char(COLOR_DEFAULT, '\n');
+}
+
+static void cmd_downcase(const char *s) {
+    for (int i = 0; s[i]; i++) out_char(COLOR_DEFAULT, (unsigned char) to_lower(s[i]));
+    out_char(COLOR_DEFAULT, '\n');
+}
+
+static void cmd_titlize(const char *s) {
+    int new_word = 1;
+    for (int i = 0; s[i]; i++) {
+        char c = s[i];
+        if (c == ' ') {
+            new_word = 1;
+            out_char(COLOR_DEFAULT, ' ');
+            continue;
+        }
+        if (new_word) {
+            out_char(COLOR_DEFAULT, (unsigned char) to_upper(to_lower(c)));
+            new_word = 0;
+        } else {
+            out_char(COLOR_DEFAULT, (unsigned char) to_lower(c));
+        }
+    }
+    out_char(COLOR_DEFAULT, '\n');
+}
+
+static void cmd_template(const char *s) {
     // load template from s into template_buf (max TEMPLATE_MAX_LEN)
     template_len = 0;
     for (int i = 0; i < TEMPLATE_BUF_SIZE; i++) template_buf[i] = 0;
@@ -549,15 +518,13 @@ static void cmd_template(const char* s)
     int i = 0;
     while (s[i] == ' ') i++;
 
-    while (s[i] && template_len < TEMPLATE_MAX_LEN)
-    {
+    while (s[i] && template_len < TEMPLATE_MAX_LEN) {
         template_buf[template_len++] = s[i++];
     }
 
     template_loaded = (template_len > 0) ? 1 : 0;
 
-    if (!template_loaded)
-    {
+    if (!template_loaded) {
         out_str(COLOR_DEFAULT, "No template provided.\n");
         return;
     }
@@ -571,10 +538,8 @@ static void cmd_template(const char* s)
     }
 }
 
-static void cmd_search(const char* s)
-{
-    if (!template_loaded)
-    {
+static void cmd_search(const char *s) {
+    if (!template_loaded) {
         out_str(COLOR_DEFAULT, "No template loaded.\n");
         return;
     }
@@ -585,61 +550,62 @@ static void cmd_search(const char* s)
 
     int i = 0;
     while (s[i] == ' ') i++;
-    while (s[i] && n < TEMPLATE_MAX_LEN)
-    {
+    while (s[i] && n < TEMPLATE_MAX_LEN) {
         text[n++] = s[i++];
     }
     text[n] = 0;
 
     int pos;
     if (boot_mode == 1) // bm
-        pos = bm_search(text, n, (const char*)template_buf, template_len);
+        pos = bm_search(text, n, (const char *) template_buf, template_len);
     else
-        pos = std_search(text, n, (const char*)template_buf, template_len);
+        pos = std_search(text, n, (const char *) template_buf, template_len);
 
-    if (pos >= 0)
-    {
+    if (pos >= 0) {
         out_str(COLOR_DEFAULT, "Found '");
         for (unsigned int k = 0; k < template_len; k++)
-            out_char(COLOR_DEFAULT, (unsigned char)template_buf[k]);
+            out_char(COLOR_DEFAULT, (unsigned char) template_buf[k]);
         out_str(COLOR_DEFAULT, "' at pos: ");
-        out_uint(COLOR_DEFAULT, (unsigned int)pos);
+        out_uint(COLOR_DEFAULT, (unsigned int) pos);
         out_char(COLOR_DEFAULT, '\n');
-    }
-    else
-    {
+    } else {
         out_str(COLOR_DEFAULT, "Not found '");
         for (unsigned int k = 0; k < template_len; k++)
-            out_char(COLOR_DEFAULT, (unsigned char)template_buf[k]);
+            out_char(COLOR_DEFAULT, (unsigned char) template_buf[k]);
         out_str(COLOR_DEFAULT, "'\n");
     }
 }
 
-static void handle_command()
-{
-    int i = 0;
-    while (cmd[i] == ' ') i++;
+static const Command g_commands[] = {
+        {"info",     cmd_info},
+        {"shutdown", cmd_shutdown},
+        {"upcase",   cmd_upcase},
+        {"downcase", cmd_downcase},
+        {"titlize",  cmd_titlize},
+        {"template", cmd_template},
+        {"search",   cmd_search},
+};
 
-    const char* s = (const char*)&cmd[i];
-    if (s[0] == 0) return;
+static void dispatch_command(const char *input) {
+    while (*input == ' ') input++;
+    if (*input == 0) return;
 
-    if (streq(s, "info")) { cmd_info(); return; }
-    if (streq(s, "shutdown")) { cmd_shutdown(); return; }
-
-    if (starts_with(s, "upcase ")) { print_upcase(s + 7); return; }
-    if (starts_with(s, "downcase ")) { print_downcase(s + 9); return; }
-    if (starts_with(s, "titlize ")) { print_titlize(s + 8); return; }
-
-    if (starts_with(s, "template ")) { cmd_template(s + 9); return; }
-    if (starts_with(s, "search ")) { cmd_search(s + 7); return; }
+    for (int i = 0; i < 7; i++) {
+        const Command &cmd = g_commands[i];
+        if (starts_with(input, cmd.name)) {
+            const char *args = input + str_length(cmd.name);
+            if (*args == ' ') args++;
+            cmd.handler(args);
+            return;
+        }
+    }
 
     out_str(COLOR_DEFAULT, "Unknown command\n");
 }
 
 // --------------- Entry ---------------
-extern "C" int kmain()
-{
-    boot_mode = *(volatile unsigned char*)BOOT_MODE_ADDR; // 1=bm,2=std
+extern "C" int kmain() {
+    boot_mode = *(volatile unsigned char *) BOOT_MODE_ADDR; // 1=bm,2=std
 
     screen_clear();
     out_str(COLOR_DEFAULT, "Welcome to StringsOS!\n");
@@ -653,18 +619,16 @@ extern "C" int kmain()
     pic_remap();
     intr_init();
 
-    intr_reg_handler(0x21, GDT_CS, 0x80 | IDT_TYPE_INTR, (intr_handler)keyb_handler);
+    intr_reg_handler(0x21, GDT_CS, 0x80 | IDT_TYPE_INTR, (intr_handler) keyb_handler);
 
     intr_start();
     pic_allow_only_keyboard();
     intr_enable();
 
-    for (;;)
-    {
-        if (cmd_ready)
-        {
+    while (1) {
+        if (cmd_ready) {
             cmd_ready = 0;
-            handle_command();
+            dispatch_command((const char *) cmd);
             cmd_reset();
             prompt();
             g_pos = 2;

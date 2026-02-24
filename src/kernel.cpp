@@ -343,15 +343,6 @@ static int str_length(const char *s) {
     return len;
 }
 
-static int starts_with(const char *s, const char *pfx) {
-    int i = 0;
-    while (pfx[i]) {
-        if (s[i] != pfx[i]) return 0;
-        i++;
-    }
-    return 1;
-}
-
 static char to_upper(char c) {
     if (c >= 'a' && c <= 'z') return (char) (c - 'a' + 'A');
     return c;

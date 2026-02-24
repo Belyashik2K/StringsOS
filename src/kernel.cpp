@@ -586,18 +586,40 @@ static const Command g_commands[] = {
         {"search",   cmd_search},
 };
 
+static bool cmd_name_matches(const char* input, const char* name, int name_len)
+{
+    for (int j = 0; j < name_len; j++) {
+        if (input[j] != name[j]) {
+            return false;
+        }
+    }
+    char next = input[name_len];
+    return (next == 0 || next == ' ');
+}
+
+static const Command* find_command(const char* input)
+{
+    for (int i = 0; i < 7; i++) {
+        const Command &cmd = g_commands[i];
+        int name_len = str_length(cmd.name);
+        if (cmd_name_matches(input, cmd.name, name_len)) {
+            return &cmd;
+        }
+    }
+    return nullptr;
+}
+
 static void dispatch_command(const char *input) {
     while (*input == ' ') input++;
     if (*input == 0) return;
 
-    for (int i = 0; i < 7; i++) {
-        const Command &cmd = g_commands[i];
-        if (starts_with(input, cmd.name)) {
-            const char *args = input + str_length(cmd.name);
-            if (*args == ' ') args++;
-            cmd.handler(args);
-            return;
-        }
+    const Command* cmd = find_command(input);
+    if (cmd != nullptr) {
+        int name_len = str_length(cmd->name);
+        const char *args = input + name_len;
+        if (*args == ' ') args++;
+        cmd->handler(args);
+        return;
     }
 
     out_str(COLOR_DEFAULT, "Unknown command\n");

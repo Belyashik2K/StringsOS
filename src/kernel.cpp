@@ -46,14 +46,17 @@ __asm__("jmp kmain");
 #define ACPI_PWR_CMD        (0x604)
 #define ACPI_PWR_VALUE      (0x2000)
 
-#define INFO_AUTHOR         "Author: Sokolov Dmitrii Andreevich\n"
-#define INFO_OS             "OS: Linux\n"
-#define INFO_BOOTLOADER     "Bootloader: FASM\n"
-#define INFO_COMPILER       "Compiler: g++ (gcc)\n"
-#define INFO_MODE           "Mode: "
-#define INFO_MODE_BM        "bm\n"
-#define INFO_MODE_STD       "std\n"
-#define INFO_MODE_UNKNOWN   "unknown\n"
+#define INFO_AUTHOR         "Sokolov Dmitrii Andreevich"
+#define INFO_OS             "Linux"
+#define INFO_BOOTLOADER     "FASM"
+#define INFO_COMPILER       "g++ (gcc)"
+
+#define MODE_BM             (1)
+#define MODE_STD            (2)
+
+#define INFO_MODE_BM        "bm"
+#define INFO_MODE_STD       "std"
+#define INFO_MODE_UNKNOWN   "unknown"
 
 // ============================================================================
 // PORT I/O
@@ -533,18 +536,31 @@ struct Command {
 };
 
 static void cmd_info(const char*) {
+    video_putstr(COLOR_DEFAULT, "Author: ");
     video_putstr(COLOR_DEFAULT, INFO_AUTHOR);
+    video_putchar(COLOR_DEFAULT, '\n');
+    
+    video_putstr(COLOR_DEFAULT, "OS: ");
     video_putstr(COLOR_DEFAULT, INFO_OS);
+    video_putchar(COLOR_DEFAULT, '\n');
+    
+    video_putstr(COLOR_DEFAULT, "Bootloader: ");
     video_putstr(COLOR_DEFAULT, INFO_BOOTLOADER);
+    video_putchar(COLOR_DEFAULT, '\n');
+    
+    video_putstr(COLOR_DEFAULT, "Compiler: ");
     video_putstr(COLOR_DEFAULT, INFO_COMPILER);
-    video_putstr(COLOR_DEFAULT, INFO_MODE);
-    if (g_boot_mode == 1) {
+    video_putchar(COLOR_DEFAULT, '\n');
+
+    video_putstr(COLOR_DEFAULT, "Mode: ");
+    if (g_boot_mode == MODE_BM) {
         video_putstr(COLOR_DEFAULT, INFO_MODE_BM);
-    } else if (g_boot_mode == 2) {
+    } else if (g_boot_mode == MODE_STD) {
         video_putstr(COLOR_DEFAULT, INFO_MODE_STD);
     } else {
         video_putstr(COLOR_DEFAULT, INFO_MODE_UNKNOWN);
     }
+    video_putchar(COLOR_DEFAULT, '\n');
 }
 
 static void cmd_shutdown(const char*) {
@@ -610,7 +626,7 @@ static void cmd_template(const char* arguments) {
 
     template_print_status();
 
-    if (g_boot_mode == 1) {
+    if (g_boot_mode == MODE_BM) {
         bm_build_shift_table();
         bm_print_shift_table();
     }
@@ -633,7 +649,7 @@ static void cmd_search(const char* arguments) {
     search_text[search_length] = 0;
 
     int found_position;
-    if (g_boot_mode == 1) {
+    if (g_boot_mode == MODE_BM) {
         found_position = search_boyer_moore(search_text, search_length, (const char*) g_template_buffer, g_template_length);
     } else {
         found_position = search_naive(search_text, search_length, (const char*) g_template_buffer, g_template_length);
@@ -727,7 +743,7 @@ extern "C" int kmain() {
     pic_enable_keyboard_only();
     interrupts_enable();
 
-    while (1) {
+    for (;;) {
         if (g_command_ready) {
             g_command_ready = 0;
             dispatch_command((const char*) g_command_buffer);

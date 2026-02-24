@@ -1,21 +1,57 @@
 __asm__("jmp kmain");
 
-#define VIDEO_BUF_PTR  (0xB8000)
-#define VIDEO_WIDTH    (80)
-#define VIDEO_HEIGHT   (25)
-#define GDT_CS         (0x8)
+// --------------- Constants ---------------
+// Video
+#define VIDEO_BUF_PTR   (0xB8000)
+#define VIDEO_WIDTH     (80)
+#define VIDEO_HEIGHT    (25)
 
-#define IDT_TYPE_INTR  (0x0E)
+// GDT
+#define GDT_CS          (0x8)
 
-#define PIC1_CMD   (0x20)
-#define PIC1_DATA  (0x21)
-#define PIC2_CMD   (0xA0)
-#define PIC2_DATA  (0xA1)
+// IDT
+#define IDT_TYPE_INTR   (0x0E)
 
-#define KBD_DATA_PORT  (0x60)
-#define KBD_STAT_PORT  (0x64)
+// PIC
+#define PIC1_CMD        (0x20)
+#define PIC1_DATA       (0x21)
+#define PIC2_CMD        (0xA0)
+#define PIC2_DATA       (0xA1)
 
-#define CURSOR_PORT (0x3D4)
+// Keyboard
+#define KBD_DATA_PORT   (0x60)
+#define KBD_STAT_PORT   (0x64)
+
+// VGA Cursor
+#define CURSOR_PORT     (0x3D4)
+
+// Boot params
+#define BOOT_MODE_ADDR  (0x90000)
+
+// Command buffer
+#define CMD_MAX_LEN     (40)
+#define CMD_BUF_SIZE    (CMD_MAX_LEN + 1)
+
+// Template buffer
+#define TEMPLATE_MAX_LEN (40)
+#define TEMPLATE_BUF_SIZE (TEMPLATE_MAX_LEN + 1)
+
+// Keyboard scan codes
+#define SCANCODE_ESCAPE     (1)
+#define SCANCODE_BACKSPACE  (14)
+#define SCANCODE_ENTER      (28)
+#define SCANCODE_SHIFT_L    (42)
+#define SCANCODE_SHIFT_R    (54)
+#define SCANCODE_SHIFT_L_REL (170)
+#define SCANCODE_SHIFT_R_REL (182)
+#define SCANCODE_E0_PREFIX  (0xE0)
+
+// Colors
+#define COLOR_DEFAULT       (0x07)
+
+// ACPI
+#define ACPI_PWR_CMD        (0x604)
+#define ACPI_PWR_VALUE      (0x2000)
 
 // --------------- Port I/O ---------------
 static inline unsigned char inb(unsigned short port)
@@ -133,7 +169,7 @@ static void screen_clear()
     for (int i = 0; i < VIDEO_WIDTH * VIDEO_HEIGHT * 2; i += 2)
     {
         video[i] = ' ';
-        video[i + 1] = 0x07;
+        video[i + 1] = COLOR_DEFAULT;
     }
     g_str = 0;
     g_pos = 0;
@@ -187,17 +223,17 @@ static void out_uint(int color, unsigned int x)
 
 static void prompt()
 {
-    out_str(0x07, "# ");
+    out_str(COLOR_DEFAULT, "# ");
 }
 
 // --------------- Command buffer ---------------
-static volatile char cmd[41];
+static volatile char cmd[CMD_BUF_SIZE];
 static volatile unsigned int cmd_len = 0;
 static volatile unsigned char cmd_ready = 0;
 
 static void cmd_reset()
 {
-    for (int i = 0; i < 41; i++) cmd[i] = 0;
+    for (int i = 0; i < CMD_BUF_SIZE; i++) cmd[i] = 0;
     cmd_len = 0;
     cmd_ready = 0;
 }
@@ -243,20 +279,20 @@ static void erase_last_char_on_screen()
         unsigned char* video = (unsigned char*)VIDEO_BUF_PTR;
         unsigned int idx = 2 * (g_str * VIDEO_WIDTH + g_pos);
         video[idx] = ' ';
-        video[idx + 1] = 0x07;
+        video[idx + 1] = COLOR_DEFAULT;
         cursor_moveto(g_str, g_pos);
     }
 }
 
 static void on_key(unsigned char sc)
 {
-    if (sc == 0xE0) { e0_prefix = 1; return; }
+    if (sc == SCANCODE_E0_PREFIX) { e0_prefix = 1; return; }
     if (e0_prefix) { e0_prefix = 0; return; } // ignore extended keys
 
-    if (sc == 42 || sc == 54) { shift_down = 1; return; }     // shift press
-    if (sc == 170 || sc == 182) { shift_down = 0; return; }   // shift release
+    if (sc == SCANCODE_SHIFT_L || sc == SCANCODE_SHIFT_R) { shift_down = 1; return; }     // shift press
+    if (sc == SCANCODE_SHIFT_L_REL || sc == SCANCODE_SHIFT_R_REL) { shift_down = 0; return; }   // shift release
 
-    if (sc == 14) // backspace
+    if (sc == SCANCODE_BACKSPACE) // backspace
     {
         if (cmd_len == 0) return;
         cmd_len--;
@@ -265,9 +301,9 @@ static void on_key(unsigned char sc)
         return;
     }
 
-    if (sc == 28) // enter
+    if (sc == SCANCODE_ENTER) // enter
     {
-        out_char(0x07, '\n');
+        out_char(COLOR_DEFAULT, '\n');
         cmd[cmd_len] = 0;
         cmd_ready = 1;
         return;
@@ -282,11 +318,11 @@ static void on_key(unsigned char sc)
         c = (char)(c - 'a' + 'A');
 
     if (!is_allowed(c)) return;
-    if (cmd_len >= 40) return;
+    if (cmd_len >= CMD_MAX_LEN) return;
 
     cmd[cmd_len++] = c;
     cmd[cmd_len] = 0;
-    out_char(0x07, (unsigned char)c);
+    out_char(COLOR_DEFAULT, (unsigned char)c);
 }
 
 extern "C" void keyb_process_keys()
@@ -346,13 +382,13 @@ static char to_lower(char c)
 
 static void print_upcase(const char* s)
 {
-    for (int i = 0; s[i]; i++) out_char(0x07, (unsigned char)to_upper(s[i]));
-    out_char(0x07, '\n');
+    for (int i = 0; s[i]; i++) out_char(COLOR_DEFAULT, (unsigned char)to_upper(s[i]));
+    out_char(COLOR_DEFAULT, '\n');
 }
 static void print_downcase(const char* s)
 {
-    for (int i = 0; s[i]; i++) out_char(0x07, (unsigned char)to_lower(s[i]));
-    out_char(0x07, '\n');
+    for (int i = 0; s[i]; i++) out_char(COLOR_DEFAULT, (unsigned char)to_lower(s[i]));
+    out_char(COLOR_DEFAULT, '\n');
 }
 static void print_titlize(const char* s)
 {
@@ -363,24 +399,24 @@ static void print_titlize(const char* s)
         if (c == ' ')
         {
             new_word = 1;
-            out_char(0x07, ' ');
+            out_char(COLOR_DEFAULT, ' ');
             continue;
         }
         if (new_word)
         {
-            out_char(0x07, (unsigned char)to_upper(to_lower(c)));
+            out_char(COLOR_DEFAULT, (unsigned char)to_upper(to_lower(c)));
             new_word = 0;
         }
         else
         {
-            out_char(0x07, (unsigned char)to_lower(c));
+            out_char(COLOR_DEFAULT, (unsigned char)to_lower(c));
         }
     }
-    out_char(0x07, '\n');
+    out_char(COLOR_DEFAULT, '\n');
 }
 
 // --------------- Template/Search data ---------------
-static volatile char template_buf[41];
+static volatile char template_buf[TEMPLATE_BUF_SIZE];
 static volatile unsigned int template_len = 0;
 static volatile unsigned char template_loaded = 0;
 
@@ -417,15 +453,15 @@ static void bm_build_shift_table()
 
 static void print_template_loaded()
 {
-    out_str(0x07, "Template '");
+    out_str(COLOR_DEFAULT, "Template '");
     for (unsigned int i = 0; i < template_len; i++)
-        out_char(0x07, (unsigned char)template_buf[i]);
-    out_str(0x07, "' loaded.\n");
+        out_char(COLOR_DEFAULT, (unsigned char)template_buf[i]);
+    out_str(COLOR_DEFAULT, "' loaded.\n");
 }
 
 static void print_bm_info()
 {
-    out_str(0x07, "BM info:\n");
+    out_str(COLOR_DEFAULT, "BM info:\n");
 
     // print unique chars from template in order, like: s:5 t:4 ...
     unsigned char seen[256];
@@ -437,12 +473,12 @@ static void print_bm_info()
         if (seen[ch]) continue;
         seen[ch] = 1;
 
-        out_char(0x07, (unsigned char)ch);
-        out_char(0x07, ':');
-        out_uint(0x07, (unsigned int)bm_shift[ch]);
-        out_char(0x07, ' ');
+        out_char(COLOR_DEFAULT, (unsigned char)ch);
+        out_char(COLOR_DEFAULT, ':');
+        out_uint(COLOR_DEFAULT, (unsigned int)bm_shift[ch]);
+        out_char(COLOR_DEFAULT, ' ');
     }
-    out_char(0x07, '\n');
+    out_char(COLOR_DEFAULT, '\n');
 }
 
 // naive search (std)
@@ -486,34 +522,34 @@ static int bm_search(const char* text, unsigned int n, const char* pat, unsigned
 // --------------- Commands ---------------
 static void cmd_info()
 {
-    out_str(0x07, "Author: Sokolov Dmitrii Andreevich\n");
-    out_str(0x07, "OS: Linux\n");
-    out_str(0x07, "Bootloader: FASM\n");
-    out_str(0x07, "Compiler: g++ (gcc)\n");
-    out_str(0x07, "Mode: ");
-    if (boot_mode == 1) out_str(0x07, "bm\n");
-    else if (boot_mode == 2) out_str(0x07, "std\n");
-    else out_str(0x07, "unknown\n");
+    out_str(COLOR_DEFAULT, "Author: Sokolov Dmitrii Andreevich\n");
+    out_str(COLOR_DEFAULT, "OS: Linux\n");
+    out_str(COLOR_DEFAULT, "Bootloader: FASM\n");
+    out_str(COLOR_DEFAULT, "Compiler: g++ (gcc)\n");
+    out_str(COLOR_DEFAULT, "Mode: ");
+    if (boot_mode == 1) out_str(COLOR_DEFAULT, "bm\n");
+    else if (boot_mode == 2) out_str(COLOR_DEFAULT, "std\n");
+    else out_str(COLOR_DEFAULT, "unknown\n");
 }
 
 static void cmd_shutdown()
 {
-    out_str(0x07, "Shutting down...\n");
-    outw(0x604, 0x2000);
+    out_str(COLOR_DEFAULT, "Shutting down...\n");
+    outw(ACPI_PWR_CMD, ACPI_PWR_VALUE);
     for (;;) __asm__ volatile ("hlt");
 }
 
 static void cmd_template(const char* s)
 {
-    // load template from s into template_buf (max 40)
+    // load template from s into template_buf (max TEMPLATE_MAX_LEN)
     template_len = 0;
-    for (int i = 0; i < 41; i++) template_buf[i] = 0;
+    for (int i = 0; i < TEMPLATE_BUF_SIZE; i++) template_buf[i] = 0;
 
     // skip leading spaces
     int i = 0;
     while (s[i] == ' ') i++;
 
-    while (s[i] && template_len < 40)
+    while (s[i] && template_len < TEMPLATE_MAX_LEN)
     {
         template_buf[template_len++] = s[i++];
     }
@@ -522,7 +558,7 @@ static void cmd_template(const char* s)
 
     if (!template_loaded)
     {
-        out_str(0x07, "No template provided.\n");
+        out_str(COLOR_DEFAULT, "No template provided.\n");
         return;
     }
 
@@ -539,17 +575,17 @@ static void cmd_search(const char* s)
 {
     if (!template_loaded)
     {
-        out_str(0x07, "No template loaded.\n");
+        out_str(COLOR_DEFAULT, "No template loaded.\n");
         return;
     }
 
     // copy search string into local buffer (max 40)
-    char text[41];
+    char text[TEMPLATE_BUF_SIZE];
     unsigned int n = 0;
 
     int i = 0;
     while (s[i] == ' ') i++;
-    while (s[i] && n < 40)
+    while (s[i] && n < TEMPLATE_MAX_LEN)
     {
         text[n++] = s[i++];
     }
@@ -563,19 +599,19 @@ static void cmd_search(const char* s)
 
     if (pos >= 0)
     {
-        out_str(0x07, "Found '");
+        out_str(COLOR_DEFAULT, "Found '");
         for (unsigned int k = 0; k < template_len; k++)
-            out_char(0x07, (unsigned char)template_buf[k]);
-        out_str(0x07, "' at pos: ");
-        out_uint(0x07, (unsigned int)pos);
-        out_char(0x07, '\n');
+            out_char(COLOR_DEFAULT, (unsigned char)template_buf[k]);
+        out_str(COLOR_DEFAULT, "' at pos: ");
+        out_uint(COLOR_DEFAULT, (unsigned int)pos);
+        out_char(COLOR_DEFAULT, '\n');
     }
     else
     {
-        out_str(0x07, "Not found '");
+        out_str(COLOR_DEFAULT, "Not found '");
         for (unsigned int k = 0; k < template_len; k++)
-            out_char(0x07, (unsigned char)template_buf[k]);
-        out_str(0x07, "'\n");
+            out_char(COLOR_DEFAULT, (unsigned char)template_buf[k]);
+        out_str(COLOR_DEFAULT, "'\n");
     }
 }
 
@@ -597,16 +633,16 @@ static void handle_command()
     if (starts_with(s, "template ")) { cmd_template(s + 9); return; }
     if (starts_with(s, "search ")) { cmd_search(s + 7); return; }
 
-    out_str(0x07, "Unknown command\n");
+    out_str(COLOR_DEFAULT, "Unknown command\n");
 }
 
 // --------------- Entry ---------------
 extern "C" int kmain()
 {
-    boot_mode = *(volatile unsigned char*)0x90000; // 1=bm,2=std
+    boot_mode = *(volatile unsigned char*)BOOT_MODE_ADDR; // 1=bm,2=std
 
     screen_clear();
-    out_str(0x07, "Welcome to StringsOS!\n");
+    out_str(COLOR_DEFAULT, "Welcome to StringsOS!\n");
     prompt();
     g_pos = 2;
     cursor_moveto(g_str, g_pos);

@@ -35,6 +35,7 @@ __asm__("jmp kmain");
 #define SCANCODE_SHIFT_L_REL (170)
 #define SCANCODE_SHIFT_R_REL (182)
 #define SCANCODE_E0_PREFIX  (0xE0)
+#define SCANCODE_RELEASE_MASK (0x80)
 
 #define COLOR_DEFAULT       (0x07)
 
@@ -163,6 +164,17 @@ static void screen_clear() {
     cursor_moveto(g_video.cursor_row, g_video.cursor_col);
 }
 
+static void erase_last_char_on_screen() {
+    if (g_video.cursor_col > 0) {
+        g_video.cursor_col--;
+        unsigned char *video = (unsigned char *) VIDEO_BUF_PTR;
+        unsigned int idx = 2 * (g_video.cursor_row * VIDEO_WIDTH + g_video.cursor_col);
+        video[idx] = ' ';
+        video[idx + 1] = COLOR_DEFAULT;
+        cursor_moveto(g_video.cursor_row, g_video.cursor_col);
+    }
+}
+
 static void out_char(int color, unsigned char c) {
     if (c == '\n') {
         g_video.cursor_col = 0;
@@ -250,20 +262,54 @@ static int is_allowed(char c) {
     return 0;
 }
 
-static void erase_last_char_on_screen() {
-    if (g_video.cursor_col > 0) {
-        g_video.cursor_col--;
-        unsigned char *video = (unsigned char *) VIDEO_BUF_PTR;
-        unsigned int idx = 2 * (g_video.cursor_row * VIDEO_WIDTH + g_video.cursor_col);
-        video[idx] = ' ';
-        video[idx + 1] = COLOR_DEFAULT;
-        cursor_moveto(g_video.cursor_row, g_video.cursor_col);
-    }
+static void keyboard_handle_extended() {
+    e0_prefix = 1;
 }
 
-static void on_key(unsigned char sc) {
+static void keyboard_handle_shift_press() {
+    shift_down = 1;
+}
+
+static void keyboard_handle_shift_release() {
+    shift_down = 0;
+}
+
+static void keyboard_handle_backspace() {
+    if (cmd_len == 0) return;
+    cmd_len--;
+    cmd[cmd_len] = 0;
+    erase_last_char_on_screen();
+}
+
+static void keyboard_handle_enter() {
+    out_char(COLOR_DEFAULT, '\n');
+    cmd[cmd_len] = 0;
+    cmd_ready = 1;
+}
+
+static char keyboard_translate_scancode(unsigned char sc) {
+    char c = scan_codes[(unsigned int) sc];
+    if (!c) return 0;
+    
+    if (shift_down && c >= 'a' && c <= 'z') {
+        c = (char) (c - 'a' + 'A');
+    }
+    
+    return c;
+}
+
+static void keyboard_append_char(char c) {
+    if (!is_allowed(c)) return;
+    if (cmd_len >= CMD_MAX_LEN) return;
+    
+    cmd[cmd_len++] = c;
+    cmd[cmd_len] = 0;
+    out_char(COLOR_DEFAULT, (unsigned char) c);
+}
+
+static void keyboard_handle_scancode(unsigned char sc) {
     if (sc == SCANCODE_E0_PREFIX) {
-        e0_prefix = 1;
+        keyboard_handle_extended();
         return;
     }
     if (e0_prefix) {
@@ -272,51 +318,36 @@ static void on_key(unsigned char sc) {
     }
 
     if (sc == SCANCODE_SHIFT_L || sc == SCANCODE_SHIFT_R) {
-        shift_down = 1;
+        keyboard_handle_shift_press();
         return;
     }
     if (sc == SCANCODE_SHIFT_L_REL || sc == SCANCODE_SHIFT_R_REL) {
-        shift_down = 0;
+        keyboard_handle_shift_release();
         return;
     }
 
-    if (sc == SCANCODE_BACKSPACE)
-    {
-        if (cmd_len == 0) return;
-        cmd_len--;
-        cmd[cmd_len] = 0;
-        erase_last_char_on_screen();
+    if (sc == SCANCODE_BACKSPACE) {
+        keyboard_handle_backspace();
         return;
     }
 
-    if (sc == SCANCODE_ENTER)
-    {
-        out_char(COLOR_DEFAULT, '\n');
-        cmd[cmd_len] = 0;
-        cmd_ready = 1;
+    if (sc == SCANCODE_ENTER) {
+        keyboard_handle_enter();
         return;
     }
 
-    if (sc & 0x80) return;
+    if (sc & SCANCODE_RELEASE_MASK) return;
 
-    char c = scan_codes[(unsigned int) sc];
+    char c = keyboard_translate_scancode(sc);
     if (!c) return;
 
-    if (shift_down && c >= 'a' && c <= 'z')
-        c = (char) (c - 'a' + 'A');
-
-    if (!is_allowed(c)) return;
-    if (cmd_len >= CMD_MAX_LEN) return;
-
-    cmd[cmd_len++] = c;
-    cmd[cmd_len] = 0;
-    out_char(COLOR_DEFAULT, (unsigned char) c);
+    keyboard_append_char(c);
 }
 
 extern "C" void keyb_process_keys() {
     if (inb(KBD_STAT_PORT) & 0x01) {
         unsigned char sc = inb(KBD_DATA_PORT);
-        on_key(sc);
+        keyboard_handle_scancode(sc);
     }
 }
 

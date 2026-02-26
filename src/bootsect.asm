@@ -170,7 +170,7 @@ read_ok:
     out 0x92, al
 
     # load GDT
-    addr32 lgdt gdt_desc
+    lgdt gdt_desc
 
     # enter protected mode
     mov eax, cr0

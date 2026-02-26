@@ -165,7 +165,7 @@ load_kernel:
     out 0x92, al
 
     ; load GDT
-    lgdt [gdt_desc]
+    lgdt [gdt_info]
 
     ; enter protected mode
     mov eax, cr0
@@ -198,9 +198,10 @@ gdt:
     dq 0
     dq 0x00CF9A000000FFFF
     dq 0x00CF92000000FFFF
+gdt_end:
 
-gdt_desc:
-    dw gdt_desc - gdt - 1
+gdt_info:
+    dw gdt_end - gdt - 1
     dd gdt
 
 ; print_string: prints null-terminated string at DS:SI using BIOS teletype

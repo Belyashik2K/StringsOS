@@ -517,6 +517,8 @@ search_boyer_moore(const char *text, unsigned int text_length, const char *patte
     return -1;
 }
 
+
+
 static void info_handler(const char *) {
     video_putstr(COLOR_DEFAULT, "Author: ");
     video_putstr(COLOR_DEFAULT, INFO_AUTHOR);
@@ -651,7 +653,6 @@ static void search_handler(const char *arguments) {
 }
 
 [[noreturn]] static void shutdown_handler(const char *) {
-    video_putstr(COLOR_DEFAULT, "Shutting down, Bye!\n");
     outw(ACPI_PWR_CMD, ACPI_PWR_VALUE);
     for (;;) __asm__ volatile ("hlt");
 }

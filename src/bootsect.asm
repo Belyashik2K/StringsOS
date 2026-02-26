@@ -14,6 +14,9 @@ PARAM_SEG  equ 0x9000
 PARAM_OFF  equ 0x0000
 
 start:
+    jmp .init_cpu
+
+.init_cpu:
     cli
     xor ax, ax
     mov ds, ax
@@ -21,34 +24,38 @@ start:
     mov ss, ax
     mov sp, STACK_TOP
     sti
+    jmp .init_params
 
-    ; init params
+.init_params:
     mov ax, PARAM_SEG
     mov es, ax
+    ; если у тебя есть PARAM_OFF — лучше так:
+    ; mov byte [es:PARAM_OFF], 0
     xor di, di
     mov byte [es:di], 0
+    jmp .init_video
 
-    ; move cursor to top-left (0, 0)
-    mov ah, 0x02
-    mov bh, 0x00
-    mov dx, 0x0000
-    int 0x10
+.init_video:
+    mov ah, 02h
+    mov bh, 00h
+    mov dx, 0000h
+    int 10h
 
-    ; clear screen (BIOS scroll up entire window)
-    mov ax, 0x0600      ; scroll up entire window
-    mov bh, 0x07        ; attribute (white on black)
-    mov cx, 0x0000      ; upper-left corner
-    mov dx, 0x184F      ; lower-right corner (80x25)
-    int 0x10
+    mov ax, 0600h
+    mov bh, 07h
+    mov cx, 0000h
+    mov dx, 184Fh
+    int 10h
+    jmp .show_prompt
 
-    ; print prompt "Enter algorithm (bm/std): "
+.show_prompt:
     mov si, prompt_msg
     call print_string
+    jmp .init_cmd_state
 
-    ; cmd_state (CMD_STATE):
-    ; IDLE -> 'b' -> (expect 'm')  => "bm"
-    ; IDLE -> 's' -> 't' -> (expect 'd') => "std"
-    xor CMD_STATE, CMD_STATE          ; CMD_STATE = cmd_state (STATE_IDLE)
+.init_cmd_state:
+    xor CMD_STATE, CMD_STATE
+    jmp .waiting_for_mode_loop
 
 .waiting_for_mode_loop:
     xor ah, ah

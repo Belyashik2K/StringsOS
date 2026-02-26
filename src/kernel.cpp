@@ -1,5 +1,6 @@
-__asm__("jmp kmain");
-
+extern "C" __attribute__((naked)) void _start() {
+    __asm__ volatile("jmp kmain");
+}
 #define VIDEO_BUF_PTR  (0xB8000)
 #define VIDEO_WIDTH    (80)
 #define VIDEO_HEIGHT   (25)
@@ -298,15 +299,15 @@ extern "C" void keyb_process_keys()
     }
 }
 
-__attribute__((naked)) void keyb_handler()
+extern "C" __attribute__((naked)) void keyb_handler()
 {
     __asm__ volatile (
-            "pusha \n"
+            "pushal \n"
             "call keyb_process_keys \n"
             "movb $0x20, %al \n"
-            "outb %al, $0x20 \n"
-            "popa \n"
-            "iret \n"
+            "outb %al, $0x20 \n"   // EOI master PIC
+            "popal \n"
+            "iretl \n"
             );
 }
 
@@ -486,9 +487,9 @@ static int bm_search(const char* text, unsigned int n, const char* pat, unsigned
 // --------------- Commands ---------------
 static void cmd_info()
 {
-    out_str(0x07, "Author: Sokolov Dmitrii Andreevich\n");
+    out_str(0x07, "Author: Troitskij Aleksey Sergeevich\n");
     out_str(0x07, "OS: Linux\n");
-    out_str(0x07, "Bootloader: FASM\n");
+    out_str(0x07, "Bootloader: GNU Assembler (syntax: Intel)\n");
     out_str(0x07, "Compiler: g++ (gcc)\n");
     out_str(0x07, "Mode: ");
     if (boot_mode == 1) out_str(0x07, "bm\n");

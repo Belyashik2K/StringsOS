@@ -408,24 +408,24 @@ static void bm_build_shift_table() {
     unsigned int pattern_length = g_template_length;
 
     if (pattern_length == 0) {
-        for (int table_index = 0; table_index < 256; table_index++) {
-            g_bm_shift_table[table_index] = 0;
+        for (unsigned char & table_index : g_bm_shift_table) {
+            table_index = 0;
         }
         return;
     }
     if (pattern_length == 1) {
-        for (int table_index = 0; table_index < 256; table_index++) {
-            g_bm_shift_table[table_index] = 1;
+        for (unsigned char & table_index : g_bm_shift_table) {
+            table_index = 1;
         }
         return;
     }
 
-    for (int table_index = 0; table_index < 256; table_index++) {
-        g_bm_shift_table[table_index] = (unsigned char) (pattern_length - 1);
+    for (unsigned char & table_index : g_bm_shift_table) {
+        table_index = (unsigned char) (pattern_length - 1);
     }
 
     for (unsigned int pattern_index = 0; pattern_index + 1 < pattern_length; pattern_index++) {
-        unsigned char pattern_char = (unsigned char) g_template_buffer[pattern_index];
+        auto pattern_char = (unsigned char) g_template_buffer[pattern_index];
         g_bm_shift_table[pattern_char] = (unsigned char) ((pattern_length - 1) - pattern_index);
     }
 }
@@ -442,12 +442,12 @@ static void bm_print_shift_table() {
     video_putstr(COLOR_DEFAULT, "BM info:\n");
 
     unsigned char seen_chars[256];
-    for (int char_index = 0; char_index < 256; char_index++) {
-        seen_chars[char_index] = 0;
+    for (unsigned char & seen_char : seen_chars) {
+        seen_char = 0;
     }
 
     for (unsigned int pattern_index = 0; pattern_index < g_template_length; pattern_index++) {
-        unsigned char pattern_char = (unsigned char) g_template_buffer[pattern_index];
+        auto pattern_char = (unsigned char) g_template_buffer[pattern_index];
         if (seen_chars[pattern_char]) continue;
         seen_chars[pattern_char] = 1;
 
@@ -489,8 +489,8 @@ search_boyer_moore(const char *text, unsigned int text_length, const char *patte
             return (int) (text_index - (pattern_length - 1));
         }
 
-        unsigned char text_char = (unsigned char) text[text_index];
-        unsigned int shift_amount = (unsigned int) g_bm_shift_table[text_char];
+        auto text_char = (unsigned char) text[text_index];
+        auto shift_amount = (unsigned int) g_bm_shift_table[text_char];
         if (shift_amount == 0) shift_amount = 1;
         text_index += shift_amount;
     }
@@ -529,7 +529,7 @@ static void cmd_info(const char *) {
     video_putchar(COLOR_DEFAULT, '\n');
 }
 
-static void cmd_shutdown(const char *) {
+[[noreturn]] static void cmd_shutdown(const char *) {
     video_putstr(COLOR_DEFAULT, "Shutting down...\n");
     outw(ACPI_PWR_CMD, ACPI_PWR_VALUE);
     for (;;) __asm__ volatile ("hlt");
@@ -551,7 +551,7 @@ static void cmd_downcase(const char *input_string) {
 
 static void cmd_titlize(const char *input_string) {
     bool new_word = true;
-    
+
     for (int char_index = 0; input_string[char_index]; char_index++) {
         auto character = (unsigned char) input_string[char_index];
         if (character == ' ') {

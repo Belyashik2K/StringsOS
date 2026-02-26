@@ -277,18 +277,6 @@ static inline int is_allowed_char(unsigned char c) {
     }
 }
 
-static void keyboard_handle_extended() {
-    g_e0_prefix = 1;
-}
-
-static void keyboard_handle_shift_press() {
-    g_shift_pressed = 1;
-}
-
-static void keyboard_handle_shift_release() {
-    g_shift_pressed = 0;
-}
-
 static void keyboard_handle_backspace() {
     if (g_command_length == 0) return;
     g_command_length--;
@@ -323,40 +311,21 @@ static void keyboard_append_char(char character) {
 }
 
 static void keyboard_handle_scancode(unsigned char scancode) {
-    if (scancode == SCANCODE_E0_PREFIX) {
-        keyboard_handle_extended();
-        return;
-    }
-    if (g_e0_prefix) {
-        g_e0_prefix = 0;
+    if (scancode == SCANCODE_E0_PREFIX) { g_e0_prefix = 1; return; }
+    if (g_e0_prefix) { g_e0_prefix = 0; return; }
+
+    if (scancode & SCANCODE_RELEASE_MASK) {
+        if (scancode == SCANCODE_SHIFT_L_REL || scancode == SCANCODE_SHIFT_R_REL)
+            g_shift_pressed = 0;
         return;
     }
 
-    if (scancode == SCANCODE_SHIFT_L || scancode == SCANCODE_SHIFT_R) {
-        keyboard_handle_shift_press();
-        return;
-    }
-    if (scancode == SCANCODE_SHIFT_L_REL || scancode == SCANCODE_SHIFT_R_REL) {
-        keyboard_handle_shift_release();
-        return;
-    }
-
-    if (scancode == SCANCODE_BACKSPACE) {
-        keyboard_handle_backspace();
-        return;
-    }
-
-    if (scancode == SCANCODE_ENTER) {
-        keyboard_handle_enter();
-        return;
-    }
-
-    if (scancode & SCANCODE_RELEASE_MASK) return;
+    if (scancode == SCANCODE_SHIFT_L || scancode == SCANCODE_SHIFT_R) { g_shift_pressed = 1; return; }
+    if (scancode == SCANCODE_BACKSPACE) { keyboard_handle_backspace(); return; }
+    if (scancode == SCANCODE_ENTER) { keyboard_handle_enter(); return; }
 
     char character = keyboard_translate_scancode(scancode);
-    if (!character) return;
-
-    keyboard_append_char(character);
+    if (character) keyboard_append_char(character);
 }
 
 extern "C" void keyboard_process_keys() {

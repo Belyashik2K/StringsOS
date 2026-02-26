@@ -169,10 +169,8 @@ read_ok:
     or al, 2
     out 0x92, al
 
-    # load GDT
     lgdt gdt_desc
 
-    # enter protected mode
     mov eax, cr0
     or eax, 1
     mov cr0, eax

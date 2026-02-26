@@ -79,6 +79,20 @@ static volatile unsigned char * const video_memory = (volatile unsigned char *) 
 static idt_entry g_idt[256];
 static idt_ptr g_idt_ptr;
 
+static const char g_scancode_to_ascii[128] = {
+        0, 27,
+        '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
+        8, 0,
+        'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']',
+        0, 0,
+        'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`',
+        0, '\\', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/',
+        0, '*', 0, ' ',
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '+', 0, 0, 0, 0
+};
+
 static inline unsigned char inb(unsigned short port) {
     unsigned char data;
     __asm__ volatile ("inb %w1, %b0" : "=a"(data) : "Nd"(port));
@@ -126,6 +140,7 @@ static void idt_load() {
     g_idt_ptr.limit = (unsigned short) (sizeof(g_idt) - 1);
     __asm__ volatile ("lidt %0" : : "m"(g_idt_ptr));
 }
+
 
 static void pic_remap() {
     unsigned char pic1_mask = inb(PIC1_DATA);
@@ -233,10 +248,6 @@ static void video_prompt() {
     video_putstr(COLOR_DEFAULT, PROMPT_STR);
 }
 
-// ============================================================================
-// INPUT BUFFER
-// ============================================================================
-
 static volatile char g_command_buffer[CMD_BUF_SIZE];
 static volatile unsigned int g_command_length = 0;
 static volatile unsigned char g_command_ready = 0;
@@ -253,34 +264,17 @@ static void input_reset() {
 // KEYBOARD
 // ============================================================================
 
-static const char g_scancode_to_ascii[128] = {
-        0, 27,
-        '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
-        8, 0,
-        'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']',
-        0, 0,
-        'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`',
-        0, '\\', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/',
-        0, '*', 0, ' ',
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '+', 0, 0, 0, 0
-};
-
 static unsigned char g_boot_mode = 0;
 static volatile unsigned char g_shift_pressed = 0;
 static volatile unsigned char g_e0_prefix = 0;
 
-static int is_allowed_char(char character) {
-    if (character >= 'a' && character <= 'z') return 1;
-    if (character >= 'A' && character <= 'Z') return 1;
-    if (character >= '0' && character <= '9') return 1;
-    if (character == ' ') return 1;
-    if (character == '+') return 1;
-    if (character == '-') return 1;
-    if (character == '/') return 1;
-    if (character == '*') return 1;
-    return 0;
+static inline int is_allowed_char(unsigned char c) {
+    if ((c | 32) >= 'a' && (c | 32) <= 'z') return 1;
+    if (c >= '0' && c <= '9') return 1;
+    switch (c) {
+        case ' ': case '+': case '-': case '/': case '*': return 1;
+        default: return 0;
+    }
 }
 
 static void keyboard_handle_extended() {

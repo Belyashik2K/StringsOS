@@ -116,18 +116,55 @@ load_kernel:
     cli
 
     mov dl, 0x01        # drive B:
-    mov ch, 0x00        # cylinder
-    mov dh, 0x00        # head
-    mov cl, 0x01        # sector
-    mov al, 0x30        # 48 sectors
-    mov bx, 0x1000
-    mov es, bx
-    xor bx, bx
-    mov ah, 0x02
-    int 0x13
-    jc disk_error
+    mov ax, 0x1000
+    mov es, ax
+    xor bx, bx          # ES:BX = 1000:0000
 
-    # enable A20
+    mov si, 3           # retries
+
+read_retry:
+    # reset disk system
+    mov ah, 0x00
+    int 0x13
+
+    # ---- read 18 sectors: C=0 H=0 S=1..18 into 1000:0000 ----
+    mov ah, 0x02
+    mov al, 18
+    mov ch, 0
+    mov dh, 0
+    mov cl, 1
+    xor bx, bx
+    int 0x13
+    jc read_fail
+
+    # ---- read 18 sectors: C=0 H=1 S=1..18 into 1000:2400 ----
+    mov ah, 0x02
+    mov al, 18
+    mov ch, 0
+    mov dh, 1
+    mov cl, 1
+    mov bx, 0x2400
+    int 0x13
+    jc read_fail
+
+    # ---- read 12 sectors: C=1 H=0 S=1..12 into 1000:4800 ----
+    mov ah, 0x02
+    mov al, 12
+    mov ch, 1
+    mov dh, 0
+    mov cl, 1
+    mov bx, 0x4800
+    int 0x13
+    jc read_fail
+
+    jmp read_ok
+
+read_fail:
+    dec si
+    jnz read_retry
+    jmp disk_error
+
+read_ok:
     in al, 0x92
     or al, 2
     out 0x92, al

@@ -1,96 +1,210 @@
 __asm__("jmp kmain");
 
-#define VIDEO_BUF_PTR  (0xB8000)
-#define VIDEO_WIDTH    (80)
-#define VIDEO_HEIGHT   (25)
-#define GDT_CS         (0x8)
+#define VIDEO_BUF_PTR       (0xB8000)
+#define VIDEO_WIDTH         (80)
+#define VIDEO_HEIGHT        (25)
 
-#define IDT_TYPE_INTR  (0x0E)
+#define GDT_CS              (0x08)
 
-#define PIC1_CMD   (0x20)
-#define PIC1_DATA  (0x21)
-#define PIC2_CMD   (0xA0)
-#define PIC2_DATA  (0xA1)
+#define IDT_TYPE_INTR       (0x0E)
 
-#define KBD_DATA_PORT  (0x60)
-#define KBD_STAT_PORT  (0x64)
+#define PIC1_CMD            (0x20)
+#define PIC1_DATA           (0x21)
+#define PIC2_CMD            (0xA0)
+#define PIC2_DATA           (0xA1)
 
-#define CURSOR_PORT (0x3D4)
+#define KBD_DATA_PORT       (0x60)
+#define KBD_STAT_PORT       (0x64)
 
-// --------------- Port I/O ---------------
-static inline unsigned char inb(unsigned short port)
-{
-    unsigned char data;
-    __asm__ volatile ("inb %w1, %b0" : "=a"(data) : "Nd"(port));
-    return data;
-}
-static inline void outb(unsigned short port, unsigned char data)
-{
-    __asm__ volatile ("outb %b0, %w1" : : "a"(data), "Nd"(port));
-}
-static inline void outw(unsigned short port, unsigned short data)
-{
-    __asm__ volatile ("outw %w0, %w1" : : "a"(data), "Nd"(port));
-}
+#define CURSOR_PORT         (0x3D4)
 
-// --------------- IDT ---------------
-typedef void (*intr_handler)();
+#define BOOT_MODE_ADDR      (0x1984)
 
-struct idt_entry
-{
+#define CMD_MAX_LEN         (40)
+#define CMD_BUF_SIZE        (CMD_MAX_LEN + 1)
+
+#define TEMPLATE_MAX_LEN    (40)
+#define TEMPLATE_BUF_SIZE   (TEMPLATE_MAX_LEN + 1)
+
+#define SCANCODE_BACKSPACE      (14)
+#define SCANCODE_ENTER          (28)
+#define SCANCODE_SHIFT_L        (42)
+#define SCANCODE_SHIFT_R        (54)
+#define SCANCODE_SHIFT_L_REL    (170)
+#define SCANCODE_SHIFT_R_REL    (182)
+#define SCANCODE_E0_PREFIX      (0xE0)
+#define SCANCODE_RELEASE_MASK   (0x80)
+
+#define COLOR_DEFAULT       (0x07)
+
+#define ACPI_PWR_CMD        (0x604)
+#define ACPI_PWR_VALUE      (0x2000)
+
+#define INFO_AUTHOR         "Sokolov Dmitrii Andreevich"
+#define INFO_OS             "Linux"
+#define INFO_BOOTLOADER     "FASM"
+#define INFO_COMPILER       "g++ (gcc)"
+
+#define MODE_BM             (1)
+#define MODE_STD            (2)
+
+#define INFO_MODE_BM        "bm"
+#define INFO_MODE_STD       "std"
+
+#define PROMPT_STR           ">>> "
+#define PROMPT_STR_LEN       (4)
+
+static const char g_scancode_to_ascii[128] = {
+        0, 27,
+        '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
+        8, 0,
+        'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']',
+        0, 0,
+        'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`',
+        0, '\\', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/',
+        0, '*', 0, ' ',
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '+', 0, 0, 0, 0
+};
+
+static const char g_scancode_to_ascii_shift[128] = {
+        0, 27,
+        '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+',
+        8, 0,
+        'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}',
+        0, 0,
+        'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"', '~',
+        0, '|', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?',
+        0, '*', 0, ' ',
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '+', 0, 0, 0, 0
+};
+
+typedef void (*interrupt_handler_t)();
+
+typedef void (*command_handler_t)(const char *);
+
+static void info_handler(const char *);
+
+static void upcase_handler(const char *);
+
+static void downcase_handler(const char *);
+
+static void titlize_handler(const char *);
+
+static void template_handler(const char *);
+
+static void search_handler(const char *);
+
+[[noreturn]] static void shutdown_handler(const char *);
+
+struct idt_entry {
     unsigned short base_lo;
     unsigned short segm_sel;
-    unsigned char  always0;
-    unsigned char  flags;
+    unsigned char always0;
+    unsigned char flags;
     unsigned short base_hi;
 } __attribute__((packed));
 
-struct idt_ptr
-{
+struct idt_ptr {
     unsigned short limit;
     unsigned int base;
 } __attribute__((packed));
 
-static idt_entry g_idt[256];
-static idt_ptr   g_idtp;
+struct Command {
+    const char *name;
+    command_handler_t handler;
+};
 
-static void intr_reg_handler(int num, unsigned short segm_sel, unsigned short flags, intr_handler hndlr)
-{
-    unsigned int addr = (unsigned int)hndlr;
-    g_idt[num].base_lo  = (unsigned short)(addr & 0xFFFF);
-    g_idt[num].segm_sel = segm_sel;
-    g_idt[num].always0  = 0;
-    g_idt[num].flags    = (unsigned char)flags;
-    g_idt[num].base_hi  = (unsigned short)((addr >> 16) & 0xFFFF);
+struct VideoState {
+    unsigned int cursor_row = 0;
+    unsigned int cursor_col = 0;
+};
+static VideoState g_video;
+static volatile unsigned char *const video_memory = (volatile unsigned char *) VIDEO_BUF_PTR;
+
+static idt_entry g_idt[256];
+static idt_ptr g_idt_ptr;
+
+static unsigned char g_boot_mode = 0;
+static volatile unsigned char g_shift_pressed = 0;
+static volatile unsigned char g_e0_prefix = 0;
+
+static volatile char g_command_buffer[CMD_BUF_SIZE];
+static volatile unsigned int g_command_length = 0;
+static volatile unsigned char g_command_ready = 0;
+
+static volatile char g_template_buffer[TEMPLATE_BUF_SIZE];
+static volatile unsigned int g_template_length = 0;
+static volatile unsigned char g_template_loaded = 0;
+
+static unsigned char g_bm_shift_table[256];
+
+static const Command g_commands[] = {
+        {"info",     info_handler},
+        {"shutdown", shutdown_handler},
+        {"upcase",   upcase_handler},
+        {"downcase", downcase_handler},
+        {"titlize",  titlize_handler},
+        {"template", template_handler},
+        {"search",   search_handler}
+};
+
+
+static inline unsigned char inb(unsigned short port) {
+    unsigned char data;
+    __asm__ volatile ("inb %w1, %b0" : "=a"(data) : "Nd"(port));
+    return data;
 }
 
-static void intr_init()
-{
-    for (int i = 0; i < 256; i++)
-    {
-        g_idt[i].base_lo = 0;
-        g_idt[i].segm_sel = 0;
-        g_idt[i].always0 = 0;
-        g_idt[i].flags = 0;
-        g_idt[i].base_hi = 0;
+static inline void outb(unsigned short port, unsigned char data) {
+    __asm__ volatile ("outb %b0, %w1" : : "a"(data), "Nd"(port));
+}
+
+static inline void outw(unsigned short port, unsigned short data) {
+    __asm__ volatile ("outw %w0, %w1" : : "a"(data), "Nd"(port));
+}
+
+static inline void interrupts_enable() { __asm__ volatile ("sti"); }
+
+static inline void interrupts_disable() { __asm__ volatile ("cli"); }
+
+static void idt_register_entry(
+        int vector_num,
+        unsigned short segment_sel,
+        unsigned short flags,
+        interrupt_handler_t handler
+) {
+    unsigned int handler_addr = (unsigned int) handler;
+    g_idt[vector_num].base_lo = (unsigned short) (handler_addr & 0xFFFF);
+    g_idt[vector_num].segm_sel = segment_sel;
+    g_idt[vector_num].always0 = 0;
+    g_idt[vector_num].flags = (unsigned char) flags;
+    g_idt[vector_num].base_hi = (unsigned short) ((handler_addr >> 16) & 0xFFFF);
+}
+
+static void idt_initialize() {
+    for (auto &entry_index: g_idt) {
+        entry_index.base_lo = 0;
+        entry_index.segm_sel = 0;
+        entry_index.always0 = 0;
+        entry_index.flags = 0;
+        entry_index.base_hi = 0;
     }
 }
 
-static void intr_start()
-{
-    g_idtp.base  = (unsigned int)(&g_idt[0]);
-    g_idtp.limit = (unsigned short)(sizeof(g_idt) - 1);
-    __asm__ volatile ("lidt %0" : : "m"(g_idtp));
+static void idt_load() {
+    g_idt_ptr.base = (unsigned int) (&g_idt[0]);
+    g_idt_ptr.limit = (unsigned short) (sizeof(g_idt) - 1);
+    __asm__ volatile ("lidt %0" : : "m"(g_idt_ptr));
 }
 
-static void intr_enable()  { __asm__ volatile ("sti"); }
-static void intr_disable() { __asm__ volatile ("cli"); }
 
-// --------------- PIC ---------------
-static void pic_remap()
-{
-    unsigned char a1 = inb(PIC1_DATA);
-    unsigned char a2 = inb(PIC2_DATA);
+static void pic_remap() {
+    unsigned char pic1_mask = inb(PIC1_DATA);
+    unsigned char pic2_mask = inb(PIC2_DATA);
 
     outb(PIC1_CMD, 0x11);
     outb(PIC2_CMD, 0x11);
@@ -104,205 +218,190 @@ static void pic_remap()
     outb(PIC1_DATA, 0x01);
     outb(PIC2_DATA, 0x01);
 
-    outb(PIC1_DATA, a1);
-    outb(PIC2_DATA, a2);
+    outb(PIC1_DATA, pic1_mask);
+    outb(PIC2_DATA, pic2_mask);
 }
 
-static void pic_allow_only_keyboard()
-{
-    outb(PIC1_DATA, (unsigned char)(0xFF ^ 0x02)); // only IRQ1 enabled
+static void pic_enable_keyboard_only() {
+    outb(PIC1_DATA, (unsigned char) (0xFF ^ 0x02));
     outb(PIC2_DATA, 0xFF);
 }
 
-// --------------- VGA output ---------------
-static unsigned int g_str = 0;
-static unsigned int g_pos = 0;
-
-static void cursor_moveto(unsigned int strnum, unsigned int pos)
-{
-    unsigned short new_pos = (unsigned short)(strnum * VIDEO_WIDTH + pos);
+static void video_set_cursor(unsigned int row, unsigned int col) {
+    unsigned short cursor_pos = (unsigned short) (row * VIDEO_WIDTH + col);
     outb(CURSOR_PORT, 0x0F);
-    outb(CURSOR_PORT + 1, (unsigned char)(new_pos & 0xFF));
+    outb(CURSOR_PORT + 1, (unsigned char) (cursor_pos & 0xFF));
     outb(CURSOR_PORT, 0x0E);
-    outb(CURSOR_PORT + 1, (unsigned char)((new_pos >> 8) & 0xFF));
+    outb(CURSOR_PORT + 1, (unsigned char) ((cursor_pos >> 8) & 0xFF));
+    g_video.cursor_row = row;
+    g_video.cursor_col = col;
 }
 
-static void screen_clear()
-{
-    unsigned char* video = (unsigned char*)VIDEO_BUF_PTR;
-    for (int i = 0; i < VIDEO_WIDTH * VIDEO_HEIGHT * 2; i += 2)
-    {
-        video[i] = ' ';
-        video[i + 1] = 0x07;
+static void video_clear() {
+    for (int screen_index = 0; screen_index < VIDEO_WIDTH * VIDEO_HEIGHT * 2; screen_index += 2) {
+        video_memory[screen_index] = ' ';
+        video_memory[screen_index + 1] = COLOR_DEFAULT;
     }
-    g_str = 0;
-    g_pos = 0;
-    cursor_moveto(g_str, g_pos);
+    g_video.cursor_row = 0;
+    g_video.cursor_col = 0;
+    video_set_cursor(0, 0);
 }
 
-static void out_char(int color, unsigned char c)
-{
-    if (c == '\n')
-    {
-        g_pos = 0;
-        g_str++;
-        if (g_str >= VIDEO_HEIGHT) screen_clear();
-        cursor_moveto(g_str, g_pos);
+static void video_erase_last_char() {
+    if (g_video.cursor_col > 0) {
+        g_video.cursor_col--;
+        unsigned int video_index = 2 * (g_video.cursor_row * VIDEO_WIDTH + g_video.cursor_col);
+        video_memory[video_index] = ' ';
+        video_memory[video_index + 1] = COLOR_DEFAULT;
+        video_set_cursor(g_video.cursor_row, g_video.cursor_col);
+    }
+}
+
+static void video_putchar(int color, unsigned char character) {
+    if (character == '\n') {
+        g_video.cursor_col = 0;
+        g_video.cursor_row++;
+        if (g_video.cursor_row >= VIDEO_HEIGHT) video_clear();
+        video_set_cursor(g_video.cursor_row, g_video.cursor_col);
         return;
     }
 
-    unsigned char* video = (unsigned char*)VIDEO_BUF_PTR;
-    unsigned int idx = 2 * (g_str * VIDEO_WIDTH + g_pos);
-    video[idx] = c;
-    video[idx + 1] = (unsigned char)color;
+    unsigned int video_index = 2 * (g_video.cursor_row * VIDEO_WIDTH + g_video.cursor_col);
+    video_memory[video_index] = character;
+    video_memory[video_index + 1] = (unsigned char) color;
 
-    g_pos++;
-    if (g_pos >= VIDEO_WIDTH)
-    {
-        g_pos = 0;
-        g_str++;
-        if (g_str >= VIDEO_HEIGHT) screen_clear();
+    g_video.cursor_col++;
+    if (g_video.cursor_col >= VIDEO_WIDTH) {
+        g_video.cursor_col = 0;
+        g_video.cursor_row++;
+        if (g_video.cursor_row >= VIDEO_HEIGHT) video_clear();
     }
-    cursor_moveto(g_str, g_pos);
+    video_set_cursor(g_video.cursor_row, g_video.cursor_col);
 }
 
-static void out_str(int color, const char* s)
-{
-    for (int i = 0; s[i]; i++)
-        out_char(color, (unsigned char)s[i]);
-}
-
-static void out_uint(int color, unsigned int x)
-{
-    char buf[11];
-    int n = 0;
-    if (x == 0) { out_char(color, '0'); return; }
-    while (x > 0 && n < 10)
-    {
-        buf[n++] = (char)('0' + (x % 10));
-        x /= 10;
+static void video_putstr(int color, const char *string) {
+    for (int char_index = 0; string[char_index]; char_index++) {
+        video_putchar(color, (unsigned char) string[char_index]);
     }
-    for (int i = n - 1; i >= 0; i--) out_char(color, (unsigned char)buf[i]);
 }
 
-static void prompt()
-{
-    out_str(0x07, "# ");
+static void video_putnum(int color, unsigned int number) {
+    char digit_buffer[11];
+    int digit_count = 0;
+
+    if (number == 0) {
+        video_putchar(color, '0');
+        return;
+    }
+
+    while (number > 0 && digit_count < 10) {
+        digit_buffer[digit_count++] = (char) ('0' + (number % 10));
+        number /= 10;
+    }
+
+    for (int digit_index = digit_count - 1; digit_index >= 0; digit_index--) {
+        video_putchar(color, (unsigned char) digit_buffer[digit_index]);
+    }
 }
 
-// --------------- Command buffer ---------------
-static volatile char cmd[41];
-static volatile unsigned int cmd_len = 0;
-static volatile unsigned char cmd_ready = 0;
-
-static void cmd_reset()
-{
-    for (int i = 0; i < 41; i++) cmd[i] = 0;
-    cmd_len = 0;
-    cmd_ready = 0;
+static void video_prompt() {
+    video_putstr(COLOR_DEFAULT, PROMPT_STR);
+    video_set_cursor(g_video.cursor_row, PROMPT_STR_LEN);
 }
 
-// --------------- Keyboard mapping ---------------
-static const char scan_codes[128] =
-        {
-                0, 27,
-                '1','2','3','4','5','6','7','8','9','0','-','=',
-                8, 0,
-                'q','w','e','r','t','y','u','i','o','p','[',']',
-                0, 0,
-                'a','s','d','f','g','h','j','k','l',';','\'','`',
-                0, '\\','z','x','c','v','b','n','m',',','.','/',
-                0, '*', 0, ' ',
-                0,0,0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,0,0,0,'+',0,0,0,0
-        };
+static void input_reset() {
+    for (int buffer_index = 0; buffer_index < CMD_BUF_SIZE; buffer_index++) {
+        g_command_buffer[buffer_index] = 0;
+    }
+    g_command_length = 0;
+    g_command_ready = 0;
+}
 
-static unsigned char boot_mode = 0; // 1=bm,2=std
-static volatile unsigned char shift_down = 0;
-static volatile unsigned char e0_prefix = 0;
-
-static int is_allowed(char c)
-{
-    if (c >= 'a' && c <= 'z') return 1;
-    if (c >= 'A' && c <= 'Z') return 1;
+static inline int is_allowed_char(unsigned char c) {
+    if ((c | 32) >= 'a' && (c | 32) <= 'z') return 1;
     if (c >= '0' && c <= '9') return 1;
-    if (c == ' ') return 1;
-    if (c == '+') return 1;
-    if (c == '-') return 1;
-    if (c == '/') return 1;
-    if (c == '*') return 1;
-    return 0;
-}
-
-static void erase_last_char_on_screen()
-{
-    if (g_pos > 2)
-    {
-        g_pos--;
-        unsigned char* video = (unsigned char*)VIDEO_BUF_PTR;
-        unsigned int idx = 2 * (g_str * VIDEO_WIDTH + g_pos);
-        video[idx] = ' ';
-        video[idx + 1] = 0x07;
-        cursor_moveto(g_str, g_pos);
+    switch (c) {
+        case ' ':
+        case '+':
+        case '-':
+        case '/':
+        case '*':
+            return 1;
+        default:
+            return 0;
     }
 }
 
-static void on_key(unsigned char sc)
-{
-    if (sc == 0xE0) { e0_prefix = 1; return; }
-    if (e0_prefix) { e0_prefix = 0; return; } // ignore extended keys
+static void keyboard_handle_backspace() {
+    if (g_command_length == 0) return;
+    g_command_length--;
+    g_command_buffer[g_command_length] = 0;
+    video_erase_last_char();
+}
 
-    if (sc == 42 || sc == 54) { shift_down = 1; return; }     // shift press
-    if (sc == 170 || sc == 182) { shift_down = 0; return; }   // shift release
+static void keyboard_handle_enter() {
+    video_putchar(COLOR_DEFAULT, '\n');
+    g_command_buffer[g_command_length] = 0;
+    g_command_ready = 1;
+}
 
-    if (sc == 14) // backspace
-    {
-        if (cmd_len == 0) return;
-        cmd_len--;
-        cmd[cmd_len] = 0;
-        erase_last_char_on_screen();
+static char keyboard_translate_scancode(unsigned char scancode) {
+    return g_shift_pressed ? g_scancode_to_ascii_shift[scancode] : g_scancode_to_ascii[scancode];
+}
+
+static void keyboard_append_char(char character) {
+    if ((unsigned) g_command_length >= CMD_MAX_LEN) return;
+    if (!is_allowed_char((unsigned char) character)) return;
+
+    g_command_buffer[g_command_length++] = character;
+    g_command_buffer[g_command_length] = '\0';
+    video_putchar(COLOR_DEFAULT, (unsigned char) character);
+}
+
+static void keyboard_handle_scancode(unsigned char scancode) {
+    if (scancode == SCANCODE_E0_PREFIX) {
+        g_e0_prefix = 1;
+        return;
+    }
+    if (g_e0_prefix) {
+        g_e0_prefix = 0;
         return;
     }
 
-    if (sc == 28) // enter
-    {
-        out_char(0x07, '\n');
-        cmd[cmd_len] = 0;
-        cmd_ready = 1;
+    if (scancode & SCANCODE_RELEASE_MASK) {
+        if (scancode == SCANCODE_SHIFT_L_REL || scancode == SCANCODE_SHIFT_R_REL)
+            g_shift_pressed = 0;
         return;
     }
 
-    if (sc & 0x80) return; // other releases
+    if (scancode == SCANCODE_SHIFT_L || scancode == SCANCODE_SHIFT_R) {
+        g_shift_pressed = 1;
+        return;
+    }
+    if (scancode == SCANCODE_BACKSPACE) {
+        keyboard_handle_backspace();
+        return;
+    }
+    if (scancode == SCANCODE_ENTER) {
+        keyboard_handle_enter();
+        return;
+    }
 
-    char c = scan_codes[(unsigned int)sc];
-    if (!c) return;
-
-    if (shift_down && c >= 'a' && c <= 'z')
-        c = (char)(c - 'a' + 'A');
-
-    if (!is_allowed(c)) return;
-    if (cmd_len >= 40) return;
-
-    cmd[cmd_len++] = c;
-    cmd[cmd_len] = 0;
-    out_char(0x07, (unsigned char)c);
+    char character = keyboard_translate_scancode(scancode);
+    if (character) keyboard_append_char(character);
 }
 
-extern "C" void keyb_process_keys()
-{
-    if (inb(KBD_STAT_PORT) & 0x01)
-    {
-        unsigned char sc = inb(KBD_DATA_PORT);
-        on_key(sc);
+extern "C" void keyboard_process_keys() {
+    if (inb(KBD_STAT_PORT) & 0x01) {
+        unsigned char scancode = inb(KBD_DATA_PORT);
+        keyboard_handle_scancode(scancode);
     }
 }
 
-__attribute__((naked)) void keyb_handler()
-{
+__attribute__((naked)) void keyboard_handler() {
     __asm__ volatile (
             "pusha \n"
-            "call keyb_process_keys \n"
+            "call keyboard_process_keys \n"
             "movb $0x20, %al \n"
             "outb %al, $0x20 \n"
             "popa \n"
@@ -310,332 +409,329 @@ __attribute__((naked)) void keyb_handler()
             );
 }
 
-// --------------- Helpers for commands ---------------
-static int streq(const char* a, const char* b)
-{
-    int i = 0;
-    while (a[i] && b[i])
-    {
-        if (a[i] != b[i]) return 0;
-        i++;
+static int string_length(const char *string) {
+    int length = 0;
+    while (string[length]) length++;
+    return length;
+}
+
+static char char_to_upper(char character) {
+    if (character >= 'a' && character <= 'z') {
+        return (char) (character - 'a' + 'A');
     }
-    return (a[i] == 0 && b[i] == 0);
+    return character;
 }
 
-static int starts_with(const char* s, const char* pfx)
-{
-    int i = 0;
-    while (pfx[i])
-    {
-        if (s[i] != pfx[i]) return 0;
-        i++;
+static char char_to_lower(char character) {
+    if (character >= 'A' && character <= 'Z') {
+        return (char) (character - 'A' + 'a');
     }
-    return 1;
+    return character;
 }
 
-static char to_upper(char c)
-{
-    if (c >= 'a' && c <= 'z') return (char)(c - 'a' + 'A');
-    return c;
-}
-static char to_lower(char c)
-{
-    if (c >= 'A' && c <= 'Z') return (char)(c - 'A' + 'a');
-    return c;
+static void bm_build_shift_table() {
+    unsigned int pattern_length = g_template_length;
+
+    if (pattern_length == 0) {
+        for (unsigned char &table_index: g_bm_shift_table) {
+            table_index = 0;
+        }
+        return;
+    }
+    if (pattern_length == 1) {
+        for (unsigned char &table_index: g_bm_shift_table) {
+            table_index = 1;
+        }
+        return;
+    }
+
+    for (unsigned char &table_index: g_bm_shift_table) {
+        table_index = (unsigned char) (pattern_length - 1);
+    }
+
+    for (unsigned int pattern_index = 0; pattern_index + 1 < pattern_length; pattern_index++) {
+        auto pattern_char = (unsigned char) g_template_buffer[pattern_index];
+        g_bm_shift_table[pattern_char] = (unsigned char) ((pattern_length - 1) - pattern_index);
+    }
 }
 
-static void print_upcase(const char* s)
-{
-    for (int i = 0; s[i]; i++) out_char(0x07, (unsigned char)to_upper(s[i]));
-    out_char(0x07, '\n');
+static void template_print_status() {
+    video_putstr(COLOR_DEFAULT, "Template '");
+    for (unsigned int char_index = 0; char_index < g_template_length; char_index++) {
+        video_putchar(COLOR_DEFAULT, (unsigned char) g_template_buffer[char_index]);
+    }
+    video_putstr(COLOR_DEFAULT, "' loaded.\n");
 }
-static void print_downcase(const char* s)
-{
-    for (int i = 0; s[i]; i++) out_char(0x07, (unsigned char)to_lower(s[i]));
-    out_char(0x07, '\n');
+
+static void bm_print_shift_table() {
+    bm_build_shift_table();
+    video_putstr(COLOR_DEFAULT, "BM info:\n");
+
+    unsigned char seen_chars[256];
+    for (unsigned char &seen_char: seen_chars) {
+        seen_char = 0;
+    }
+
+    for (unsigned int pattern_index = 0; pattern_index < g_template_length; pattern_index++) {
+        auto pattern_char = (unsigned char) g_template_buffer[pattern_index];
+        if (seen_chars[pattern_char]) continue;
+        seen_chars[pattern_char] = 1;
+
+        video_putchar(COLOR_DEFAULT, pattern_char);
+        video_putchar(COLOR_DEFAULT, ':');
+        video_putnum(COLOR_DEFAULT, (unsigned int) g_bm_shift_table[pattern_char]);
+        video_putchar(COLOR_DEFAULT, ' ');
+    }
+    video_putchar(COLOR_DEFAULT, '\n');
 }
-static void print_titlize(const char* s)
-{
-    int new_word = 1;
-    for (int i = 0; s[i]; i++)
-    {
-        char c = s[i];
-        if (c == ' ')
-        {
-            new_word = 1;
-            out_char(0x07, ' ');
+
+static int search_naive(const char *text, unsigned int text_length, const char *pattern, unsigned int pattern_length) {
+    if (pattern_length == 0) return 0;
+    if (pattern_length > text_length) return -1;
+
+    for (unsigned int text_index = 0; text_index + pattern_length <= text_length; text_index++) {
+        unsigned int pattern_index = 0;
+        while (pattern_index < pattern_length && text[text_index + pattern_index] == pattern[pattern_index]) {
+            pattern_index++;
+        }
+        if (pattern_index == pattern_length) return (int) text_index;
+    }
+    return -1;
+}
+
+static int
+search_boyer_moore(const char *text, unsigned int text_length, const char *pattern, unsigned int pattern_length) {
+    if (pattern_length == 0) return 0;
+    if (pattern_length > text_length) return -1;
+
+    unsigned int text_index = pattern_length - 1;
+    while (text_index < text_length) {
+        unsigned int match_count = 0;
+        while (match_count < pattern_length &&
+               pattern[pattern_length - 1 - match_count] == text[text_index - match_count]) {
+            match_count++;
+        }
+        if (match_count == pattern_length) {
+            return (int) (text_index - (pattern_length - 1));
+        }
+
+        auto text_char = (unsigned char) text[text_index];
+        auto shift_amount = (unsigned int) g_bm_shift_table[text_char];
+        if (shift_amount == 0) shift_amount = 1;
+        text_index += shift_amount;
+    }
+    return -1;
+}
+
+
+static void info_handler(const char *) {
+    video_putstr(COLOR_DEFAULT, "Author: ");
+    video_putstr(COLOR_DEFAULT, INFO_AUTHOR);
+    video_putchar(COLOR_DEFAULT, '\n');
+
+    video_putstr(COLOR_DEFAULT, "OS: ");
+    video_putstr(COLOR_DEFAULT, INFO_OS);
+    video_putchar(COLOR_DEFAULT, '\n');
+
+    video_putstr(COLOR_DEFAULT, "Bootloader: ");
+    video_putstr(COLOR_DEFAULT, INFO_BOOTLOADER);
+    video_putchar(COLOR_DEFAULT, '\n');
+
+    video_putstr(COLOR_DEFAULT, "Compiler: ");
+    video_putstr(COLOR_DEFAULT, INFO_COMPILER);
+    video_putchar(COLOR_DEFAULT, '\n');
+
+    video_putstr(COLOR_DEFAULT, "Mode: ");
+    if (g_boot_mode == MODE_BM) {
+        video_putstr(COLOR_DEFAULT, INFO_MODE_BM);
+    } else if (g_boot_mode == MODE_STD) {
+        video_putstr(COLOR_DEFAULT, INFO_MODE_STD);
+    }
+    video_putchar(COLOR_DEFAULT, '\n');
+}
+
+static void upcase_handler(const char *input_string) {
+    for (int char_index = 0; input_string[char_index]; char_index++) {
+        video_putchar(COLOR_DEFAULT, (unsigned char) char_to_upper(input_string[char_index]));
+    }
+    video_putchar(COLOR_DEFAULT, '\n');
+}
+
+static void downcase_handler(const char *input_string) {
+    for (int char_index = 0; input_string[char_index]; char_index++) {
+        video_putchar(COLOR_DEFAULT, (unsigned char) char_to_lower(input_string[char_index]));
+    }
+    video_putchar(COLOR_DEFAULT, '\n');
+}
+
+static void titlize_handler(const char *s) {
+    bool new_word = true;
+
+    for (unsigned char c; (c = (unsigned char) *s++) != 0;) {
+        if (c == ' ') {
+            new_word = true;
+            video_putchar(COLOR_DEFAULT, c);
             continue;
         }
-        if (new_word)
-        {
-            out_char(0x07, (unsigned char)to_upper(to_lower(c)));
-            new_word = 0;
+
+        if ((c | 32) >= 'a' && (c | 32) <= 'z') {
+            if (new_word) c = (unsigned char) char_to_upper((char) c);
+            else c = (unsigned char) char_to_lower((char) c);
         }
-        else
-        {
-            out_char(0x07, (unsigned char)to_lower(c));
-        }
+
+        new_word = false;
+        video_putchar(COLOR_DEFAULT, c);
     }
-    out_char(0x07, '\n');
+
+    video_putchar(COLOR_DEFAULT, '\n');
 }
 
-// --------------- Template/Search data ---------------
-static volatile char template_buf[41];
-static volatile unsigned int template_len = 0;
-static volatile unsigned char template_loaded = 0;
-
-// Horspool shift table (bm mode)
-static unsigned char bm_shift[256];
-
-static void bm_build_shift_table()
-{
-    unsigned int m = template_len;
-
-    // Для m=0/1 таблица не нужна, но сделаем безопасно
-    if (m == 0)
-    {
-        for (int i = 0; i < 256; i++) bm_shift[i] = 0;
-        return;
+static void template_handler(const char *arguments) {
+    g_template_length = 0;
+    for (int buffer_index = 0; buffer_index < TEMPLATE_BUF_SIZE; buffer_index++) {
+        g_template_buffer[buffer_index] = 0;
     }
-    if (m == 1)
-    {
-        for (int i = 0; i < 256; i++) bm_shift[i] = 1;
+
+    int arg_index = 0;
+    while (arguments[arg_index] == ' ') arg_index++;
+
+    while (arguments[arg_index] && g_template_length < TEMPLATE_MAX_LEN) {
+        g_template_buffer[g_template_length++] = arguments[arg_index++];
+    }
+
+    g_template_loaded = (g_template_length > 0) ? 1 : 0;
+
+    if (!g_template_loaded) {
+        video_putstr(COLOR_DEFAULT, "No template in memory.\n");
         return;
     }
 
-    // Как в лабе: default = m-1 (а не m)
-    for (int i = 0; i < 256; i++) bm_shift[i] = (unsigned char)(m - 1);
+    template_print_status();
 
-    // Для всех символов кроме последнего: shift = (m-1-i)
-    for (unsigned int i = 0; i + 1 < m; i++)
-    {
-        unsigned char ch = (unsigned char)template_buf[i];
-        bm_shift[ch] = (unsigned char)((m - 1) - i);
+    if (g_boot_mode == MODE_BM) bm_print_shift_table();
+}
+
+static void search_handler(const char *arguments) {
+    if (!g_template_loaded) {
+        video_putstr(COLOR_DEFAULT, "No template in memory.\n");
+        return;
     }
-}
 
+    char search_text[TEMPLATE_BUF_SIZE];
+    unsigned int search_length = 0;
 
-static void print_template_loaded()
-{
-    out_str(0x07, "Template '");
-    for (unsigned int i = 0; i < template_len; i++)
-        out_char(0x07, (unsigned char)template_buf[i]);
-    out_str(0x07, "' loaded.\n");
-}
-
-static void print_bm_info()
-{
-    out_str(0x07, "BM info:\n");
-
-    // print unique chars from template in order, like: s:5 t:4 ...
-    unsigned char seen[256];
-    for (int i = 0; i < 256; i++) seen[i] = 0;
-
-    for (unsigned int i = 0; i < template_len; i++)
-    {
-        unsigned char ch = (unsigned char)template_buf[i];
-        if (seen[ch]) continue;
-        seen[ch] = 1;
-
-        out_char(0x07, (unsigned char)ch);
-        out_char(0x07, ':');
-        out_uint(0x07, (unsigned int)bm_shift[ch]);
-        out_char(0x07, ' ');
+    int arg_index = 0;
+    while (arguments[arg_index] == ' ') arg_index++;
+    while (arguments[arg_index] && search_length < TEMPLATE_MAX_LEN) {
+        search_text[search_length++] = arguments[arg_index++];
     }
-    out_char(0x07, '\n');
-}
+    search_text[search_length] = 0;
 
-// naive search (std)
-static int std_search(const char* text, unsigned int n, const char* pat, unsigned int m)
-{
-    if (m == 0) return 0;
-    if (m > n) return -1;
-
-    for (unsigned int i = 0; i + m <= n; i++)
-    {
-        unsigned int j = 0;
-        while (j < m && text[i + j] == pat[j]) j++;
-        if (j == m) return (int)i;
+    int found_position;
+    if (g_boot_mode == MODE_BM) {
+        found_position = search_boyer_moore(
+                search_text,
+                search_length,
+                (const char *) g_template_buffer, g_template_length
+        );
+    } else {
+        found_position = search_naive(
+                search_text,
+                search_length,
+                (const char *) g_template_buffer, g_template_length
+        );
     }
-    return -1;
-}
 
-// Horspool search (bm)
-static int bm_search(const char* text, unsigned int n, const char* pat, unsigned int m)
-{
-    if (m == 0) return 0;
-    if (m > n) return -1;
-
-    unsigned int i = m - 1;
-    while (i < n)
-    {
-        unsigned int k = 0;
-        while (k < m && pat[m - 1 - k] == text[i - k]) k++;
-        if (k == m)
-            return (int)(i - (m - 1));
-
-        unsigned char c = (unsigned char)text[i];
-        unsigned int sh = (unsigned int)bm_shift[c];
-        if (sh == 0) sh = 1; // на всякий случай
-        i += sh;
+    if (found_position < 0) {
+        video_putstr(COLOR_DEFAULT, "Not found '");
+        for (unsigned int pattern_index = 0; pattern_index < g_template_length; pattern_index++) {
+            video_putchar(COLOR_DEFAULT, (unsigned char) g_template_buffer[pattern_index]);
+        }
+        video_putstr(COLOR_DEFAULT, "'\n");
+        return;
     }
-    return -1;
+
+    video_putstr(COLOR_DEFAULT, "Found '");
+    for (unsigned int pattern_index = 0; pattern_index < g_template_length; pattern_index++) {
+        video_putchar(COLOR_DEFAULT, (unsigned char) g_template_buffer[pattern_index]);
+    }
+    video_putstr(COLOR_DEFAULT, "' at pos: ");
+    video_putnum(COLOR_DEFAULT, (unsigned int) found_position);
+    video_putchar(COLOR_DEFAULT, '\n');
 }
 
-
-// --------------- Commands ---------------
-static void cmd_info()
-{
-    out_str(0x07, "Author: Sokolov Dmitrii Andreevich\n");
-    out_str(0x07, "OS: Linux\n");
-    out_str(0x07, "Bootloader: FASM\n");
-    out_str(0x07, "Compiler: g++ (gcc)\n");
-    out_str(0x07, "Mode: ");
-    if (boot_mode == 1) out_str(0x07, "bm\n");
-    else if (boot_mode == 2) out_str(0x07, "std\n");
-    else out_str(0x07, "unknown\n");
-}
-
-static void cmd_shutdown()
-{
-    out_str(0x07, "Shutting down...\n");
-    outw(0x604, 0x2000);
+[[noreturn]] static void shutdown_handler(const char *) {
+    outw(ACPI_PWR_CMD, ACPI_PWR_VALUE);
     for (;;) __asm__ volatile ("hlt");
 }
 
-static void cmd_template(const char* s)
-{
-    // load template from s into template_buf (max 40)
-    template_len = 0;
-    for (int i = 0; i < 41; i++) template_buf[i] = 0;
-
-    // skip leading spaces
-    int i = 0;
-    while (s[i] == ' ') i++;
-
-    while (s[i] && template_len < 40)
-    {
-        template_buf[template_len++] = s[i++];
+static bool command_name_matches(const char *input, const char *name, int name_length) {
+    for (int char_index = 0; char_index < name_length; char_index++) {
+        if (input[char_index] != name[char_index]) {
+            return false;
+        }
     }
+    char next_char = input[name_length];
+    return (next_char == 0 || next_char == ' ');
+}
 
-    template_loaded = (template_len > 0) ? 1 : 0;
+static const Command *find_command(const char *input) {
+    for (int command_index = 0; command_index < 7; command_index++) {
+        const Command &command = g_commands[command_index];
+        int name_length = string_length(command.name);
+        if (command_name_matches(input, command.name, name_length)) {
+            return &command;
+        }
+    }
+    return nullptr;
+}
 
-    if (!template_loaded)
-    {
-        out_str(0x07, "No template provided.\n");
+static void dispatch_command(const char *input) {
+    while (*input == ' ') input++;
+    if (*input == 0) return;
+
+    const Command *command = find_command(input);
+    if (command != nullptr) {
+        int name_length = string_length(command->name);
+        const char *arguments = input + name_length;
+        if (*arguments == ' ') arguments++;
+        command->handler(arguments);
         return;
     }
 
-    print_template_loaded();
-
-    if (boot_mode == 1) // bm
-    {
-        bm_build_shift_table();
-        print_bm_info();
-    }
+    video_putstr(COLOR_DEFAULT, "Unknown command, try again :)\n");
 }
 
-static void cmd_search(const char* s)
-{
-    if (!template_loaded)
-    {
-        out_str(0x07, "No template loaded.\n");
-        return;
-    }
-
-    // copy search string into local buffer (max 40)
-    char text[41];
-    unsigned int n = 0;
-
-    int i = 0;
-    while (s[i] == ' ') i++;
-    while (s[i] && n < 40)
-    {
-        text[n++] = s[i++];
-    }
-    text[n] = 0;
-
-    int pos;
-    if (boot_mode == 1) // bm
-        pos = bm_search(text, n, (const char*)template_buf, template_len);
-    else
-        pos = std_search(text, n, (const char*)template_buf, template_len);
-
-    if (pos >= 0)
-    {
-        out_str(0x07, "Found '");
-        for (unsigned int k = 0; k < template_len; k++)
-            out_char(0x07, (unsigned char)template_buf[k]);
-        out_str(0x07, "' at pos: ");
-        out_uint(0x07, (unsigned int)pos);
-        out_char(0x07, '\n');
-    }
-    else
-    {
-        out_str(0x07, "Not found '");
-        for (unsigned int k = 0; k < template_len; k++)
-            out_char(0x07, (unsigned char)template_buf[k]);
-        out_str(0x07, "'\n");
-    }
-}
-
-static void handle_command()
-{
-    int i = 0;
-    while (cmd[i] == ' ') i++;
-
-    const char* s = (const char*)&cmd[i];
-    if (s[0] == 0) return;
-
-    if (streq(s, "info")) { cmd_info(); return; }
-    if (streq(s, "shutdown")) { cmd_shutdown(); return; }
-
-    if (starts_with(s, "upcase ")) { print_upcase(s + 7); return; }
-    if (starts_with(s, "downcase ")) { print_downcase(s + 9); return; }
-    if (starts_with(s, "titlize ")) { print_titlize(s + 8); return; }
-
-    if (starts_with(s, "template ")) { cmd_template(s + 9); return; }
-    if (starts_with(s, "search ")) { cmd_search(s + 7); return; }
-
-    out_str(0x07, "Unknown command\n");
-}
-
-// --------------- Entry ---------------
-extern "C" int kmain()
-{
-    boot_mode = *(volatile unsigned char*)0x90000; // 1=bm,2=std
-
-    screen_clear();
-    out_str(0x07, "Welcome to StringsOS!\n");
-    prompt();
-    g_pos = 2;
-    cursor_moveto(g_str, g_pos);
-
-    cmd_reset();
-
-    intr_disable();
-    pic_remap();
-    intr_init();
-
-    intr_reg_handler(0x21, GDT_CS, 0x80 | IDT_TYPE_INTR, (intr_handler)keyb_handler);
-
-    intr_start();
-    pic_allow_only_keyboard();
-    intr_enable();
-
-    for (;;)
-    {
-        if (cmd_ready)
-        {
-            cmd_ready = 0;
-            handle_command();
-            cmd_reset();
-            prompt();
-            g_pos = 2;
-            cursor_moveto(g_str, g_pos);
+void polling_user_input() {
+    while (1) {
+        if (g_command_ready) {
+            g_command_ready = 0;
+            dispatch_command((const char *) g_command_buffer);
+            input_reset();
+            video_prompt();
         }
         __asm__ volatile ("hlt");
     }
+}
 
+extern "C" int kmain() {
+    g_boot_mode = *(volatile unsigned char *) BOOT_MODE_ADDR;
+
+    video_clear();
+
+    video_putstr(COLOR_DEFAULT, "Welcome to StringsOS!\n");
+    video_prompt();
+
+    input_reset();
+
+    interrupts_disable();
+    pic_remap();
+    idt_initialize();
+    idt_register_entry(0x21, GDT_CS, 0x80 | IDT_TYPE_INTR, (interrupt_handler_t) keyboard_handler);
+    idt_load();
+    pic_enable_keyboard_only();
+    interrupts_enable();
+
+    polling_user_input();
     return 0;
 }

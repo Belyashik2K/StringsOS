@@ -1,171 +1,244 @@
-; bootsect.asm (FASM) — waits for "bm" or "std" without Enter, stores choice,
-; then loads kernel from floppy B: to 0x1000:0000 (linear 0x10000) and jumps.
-
 use16
-org 0x7C00
+org BOOT_ORG
 
-; where to store boot params (chosen by student)
-PARAM_SEG  equ 0x9000
-PARAM_OFF  equ 0x0000
-; layout:
-; [0] = mode (1 = bm, 2 = std)
+STATE_IDLE = 0
+STATE_B    = 1
+STATE_S    = 2
+STATE_ST   = 3
+CMD_STATE equ bl
+
+BOOT_ORG    = 7C00h
+STACK_TOP   = BOOT_ORG
+
+RM_STACK_TOP = 7000h
+PM_STACK_TOP = 09FC00h
+
+; Stored at 0198:0004 -> 0x1984 in memory
+BOOT_MODE_SEGMENT equ 0198h
+BOOT_MODE_OFFSET equ 0004h
+
+DRIVE_B     = 01h
 
 start:
+.init_cpu:
     cli
     xor ax, ax
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x7C00
+    mov sp, RM_STACK_TOP
     sti
-
-    ; init params
-    mov ax, PARAM_SEG
+.init_params:
+    mov ax, BOOT_MODE_SEGMENT
     mov es, ax
     xor di, di
-    mov byte [es:di], 0
+    mov byte [es:BOOT_MODE_OFFSET], 0
+.init_video:
+    mov ah, 02h
+    mov bh, 00h
+    mov dx, 0000h
+    int 10h
 
-    ; --- read keyboard stream until "bm" or "std" appears ---
-    ; state machine:
-    ; for "bm": waiting 'b' -> got 'b' -> got 'm'
-    ; for "std": waiting 's' -> got 's' -> got 't' -> got 'd'
-    xor bx, bx          ; BL = bm_state (0..1), BH = std_state (0..2)
-
-.kbd_loop:
+    mov ax, 0600h
+    mov bh, 07h
+    mov cx, 0000h
+    mov dx, 184Fh
+    int 10h
+.show_prompt:
+    mov si, prompt_msg
+    call print_string
+.init_cmd_state:
+    xor CMD_STATE, CMD_STATE
+.waiting_for_mode_loop:
     xor ah, ah
-    int 0x16            ; wait key, AL = ASCII
+    int 0x16
 
-    ; ----- bm state -----
-    cmp bl, 0
-    jne .bm_need_m
+    cmp CMD_STATE, STATE_IDLE
+    je  .state_idle
+
+    cmp CMD_STATE, STATE_B
+    je  .state_after_b
+
+    cmp CMD_STATE, STATE_S
+    je  .state_after_s
+
+    jmp .state_after_st
+.state_idle:
     cmp al, 'b'
-    jne .bm_reset_check
-    mov bl, 1
-    jmp .std_state
+    je  .enter_state_b
 
-.bm_need_m:
+    cmp al, 's'
+    je  .enter_state_s
+
+    jmp .waiting_for_mode_loop
+.state_after_b:
     cmp al, 'm'
-    jne .bm_fail
-    ; matched "bm"
-    mov ax, PARAM_SEG
-    mov es, ax
-    mov byte [es:PARAM_OFF], 1
-    jmp load_kernel
+    je  .command_bm_detected
 
-.bm_fail:
-    ; if current char is 'b' keep state=1 else reset
     cmp al, 'b'
-    jne .bm_zero
-    mov bl, 1
-    jmp .std_state
-.bm_zero:
-    xor bl, bl
+    je  .enter_state_b
 
-.bm_reset_check:
-    ; nothing special, continue to std_state
-    jmp .std_state
-
-    ; ----- std state -----
-.std_state:
-    cmp bh, 0
-    jne .std_need_t
     cmp al, 's'
-    jne .kbd_loop
-    mov bh, 1
-    jmp .kbd_loop
+    je  .enter_state_s
 
-.std_need_t:
-    cmp bh, 1
-    jne .std_need_d
+    mov CMD_STATE, STATE_IDLE
+    jmp .waiting_for_mode_loop
+.state_after_s:
     cmp al, 't'
-    jne .std_fail_1
-    mov bh, 2
-    jmp .kbd_loop
+    je  .enter_state_st
 
-.std_need_d:
+    cmp al, 's'
+    je  .enter_state_s
+
+    cmp al, 'b'
+    je  .enter_state_b
+
+    mov CMD_STATE, STATE_IDLE
+    jmp .waiting_for_mode_loop
+.state_after_st:
     cmp al, 'd'
-    jne .std_fail_2
-    ; matched "std"
-    mov ax, PARAM_SEG
+    je  .command_std_detected
+
+    cmp al, 's'
+    je  .enter_state_s
+
+    cmp al, 'b'
+    je  .enter_state_b
+
+    mov CMD_STATE, STATE_IDLE
+    jmp .waiting_for_mode_loop
+.enter_state_b:
+    mov CMD_STATE, STATE_B
+    jmp .waiting_for_mode_loop
+.command_bm_detected:
+    mov ax, BOOT_MODE_SEGMENT
     mov es, ax
-    mov byte [es:PARAM_OFF], 2
+    mov byte [es:BOOT_MODE_OFFSET], 1
+    jmp load_kernel
+.enter_state_s:
+    mov CMD_STATE, STATE_S
+    jmp .waiting_for_mode_loop
+.enter_state_st:
+    mov CMD_STATE, STATE_ST
+    jmp .waiting_for_mode_loop
+.command_std_detected:
+    mov ax, BOOT_MODE_SEGMENT
+    mov es, ax
+    mov byte [es:BOOT_MODE_OFFSET], 2
     jmp load_kernel
 
-.std_fail_1:
-    ; if current char is 's' keep state=1 else reset
-    cmp al, 's'
-    jne .std_zero
-    mov bh, 1
-    jmp .kbd_loop
-.std_fail_2:
-    ; if current char is 's' restart at 1 else reset
-    cmp al, 's'
-    jne .std_zero
-    mov bh, 1
-    jmp .kbd_loop
-.std_zero:
-    xor bh, bh
-    jmp .kbd_loop
 
-; --- load kernel from floppy B: into 0x1000:0000 ---
 load_kernel:
     cli
+    mov dl, DRIVE_B
+    mov ax, 1000h
+    mov es, ax
 
-    mov dl, 0x01        ; drive B:
-    mov ch, 0x00        ; cylinder
-    mov dh, 0x00        ; head
-    mov cl, 0x01        ; sector
-    mov al, 0x30        ; 48 sectors
-    mov bx, 0x1000
-    mov es, bx
+    mov si, 3
+
+.retry:
+    xor ah, ah
+    int 13h
+
+    ; Read first sector (18 sectors per track, cylinder 0, head 0)
+    ; Then read next sectors (cylinder 0, head 1)
+    ; Then read sectors from the next track (cylinder 1, head 0)
+
+    mov al, 18
+    mov ch, 0
+    mov dh, 0
+    mov cl, 1
     xor bx, bx
-    mov ah, 0x02
-    int 0x13
-    jc disk_error
+    call read_chs
+    jc  .fail
 
-    ; enable A20
-    in al, 0x92
-    or al, 2
-    out 0x92, al
+    mov al, 18
+    mov ch, 0
+    mov dh, 1
+    mov cl, 1
+    mov bx, 2400h
+    call read_chs
+    jc  .fail
 
-    ; load GDT
-    lgdt [gdt_desc]
+    mov al, 12
+    mov ch, 1
+    mov dh, 0
+    mov cl, 1
+    mov bx, 4800h
+    call read_chs
+    jc  .fail
 
-    ; enter protected mode
+    jmp .ok
+.fail:
+    dec si
+    jnz .retry
+    jmp disk_error
+.ok:
+.enable_a20:
+    in  al, 92h
+    or  al, 2
+    out 92h, al
+.load_gdt:
+    lgdt [gdt_info]
+.enable_protected_mode:
     mov eax, cr0
-    or eax, 1
+    or  eax, 1
     mov cr0, eax
-    jmp 0x08:pmode
+    jmp 08h:protected_mode
+
+read_chs:
+    mov ah, 02h
+    int 13h
+    ret
 
 disk_error:
     hlt
     jmp disk_error
 
 use32
-pmode:
+protected_mode:
     mov ax, 0x10
     mov ds, ax
     mov es, ax
     mov ss, ax
     mov fs, ax
     mov gs, ax
-    mov esp, 0x90000
+    mov esp, PM_STACK_TOP
 
-    call 0x00010000     ; kernel entry (linked to 0x10000)
+    mov eax, 00010000h
+    call eax
 
 halt:
     hlt
     jmp halt
+
+print_string:
+    pusha
+.ps_loop:
+    lodsb
+    test al, al
+    jz .ps_done
+    mov ah, 0x0E
+    mov bh, 0x00
+    int 0x10
+    jmp .ps_loop
+.ps_done:
+    popa
+    ret
+
 
 align 8
 gdt:
     dq 0
     dq 0x00CF9A000000FFFF
     dq 0x00CF92000000FFFF
+gdt_end:
 
-gdt_desc:
-    dw gdt_desc - gdt - 1
+gdt_info:
+    dw gdt_end - gdt - 1
     dd gdt
 
-times 510 - ($ - $$) db 0
+prompt_msg db "Enter algorithm (bm/std): ", 0
+
+times (512 - ($ - start) - 2) db 0
 dw 0xAA55

@@ -33,21 +33,22 @@ _start:
     # for "std": waiting 's' -> got 's' -> got 't' -> got 'd'
     xor bx, bx          # BL = bm_state (0..1), BH = std_state (0..2)
 
-kbd_loop:
+mode_loop:
     xor ah, ah
     int 0x16            # wait key, AL = ASCII
 
     # ----- bm state -----
     cmp bl, 0
-    jne bm_need_m
+    jne bm_wait_for_m
     cmp al, 'b'
     jne bm_reset_check
     mov bl, 1
     jmp std_state
 
-bm_need_m:
+bm_wait_for_m:
     cmp al, 'm'
-    jne bm_fail
+    jne bm_reset_or_keep
+
     # matched "bm"
     mov ax, PARAM_SEG
     mov es, ax
@@ -55,17 +56,13 @@ bm_need_m:
     mov [es:PARAM_OFF], al
     jmp load_kernel
 
-bm_fail:
-    # if current char is 'b' keep state=1 else reset
+bm_reset_or_keep:
     cmp al, 'b'
-    jne bm_zero
+    xor bl, bl
     mov bl, 1
     jmp std_state
-bm_zero:
-    xor bl, bl
 
 bm_reset_check:
-    # nothing special, continue to std_state
     jmp std_state
 
     # ----- std state -----
@@ -73,9 +70,9 @@ std_state:
     cmp bh, 0
     jne std_need_t
     cmp al, 's'
-    jne kbd_loop
+    jne mode_loop
     mov bh, 1
-    jmp kbd_loop
+    jmp mode_loop
 
 std_need_t:
     cmp bh, 1
@@ -83,7 +80,7 @@ std_need_t:
     cmp al, 't'
     jne std_fail_1
     mov bh, 2
-    jmp kbd_loop
+    jmp mode_loop
 
 std_need_d:
     cmp al, 'd'
@@ -100,16 +97,16 @@ std_fail_1:
     cmp al, 's'
     jne std_zero
     mov bh, 1
-    jmp kbd_loop
+    jmp mode_loop
 std_fail_2:
     # if current char is 's' restart at 1 else reset
     cmp al, 's'
     jne std_zero
     mov bh, 1
-    jmp kbd_loop
+    jmp mode_loop
 std_zero:
     xor bh, bh
-    jmp kbd_loop
+    jmp mode_loop
 
 # --- load kernel from floppy B: into 0x1000:0000 ---
 load_kernel:
@@ -208,7 +205,5 @@ gdt_desc:
     .word gdt_end - gdt - 1
     .long gdt
 
-# pad to 510 bytes and add boot signature
 .zero (512 - ($ - _start) - 2)
-
 .word 0xAA55

@@ -1,4 +1,3 @@
-
 __asm__("jmp kmain");
 
 #define VIDEO_BUF_PTR  (0xB8000)

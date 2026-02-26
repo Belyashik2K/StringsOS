@@ -52,7 +52,8 @@ __asm__("jmp kmain");
 #define INFO_MODE_STD       "std"
 #define INFO_MODE_UNKNOWN   "unknown"
 
-#define PROMPT_STR           "> "
+#define PROMPT_STR           ">>> "
+#define PROMPT_STR_LEN       (4)
 
 static const char g_scancode_to_ascii[128] = {
         0, 27,
@@ -282,6 +283,7 @@ static void video_putnum(int color, unsigned int number) {
 
 static void video_prompt() {
     video_putstr(COLOR_DEFAULT, PROMPT_STR);
+    video_set_cursor(g_video.cursor_row, PROMPT_STR_LEN);
 }
 
 static void input_reset() {
@@ -408,19 +410,19 @@ static void bm_build_shift_table() {
     unsigned int pattern_length = g_template_length;
 
     if (pattern_length == 0) {
-        for (unsigned char & table_index : g_bm_shift_table) {
+        for (unsigned char &table_index: g_bm_shift_table) {
             table_index = 0;
         }
         return;
     }
     if (pattern_length == 1) {
-        for (unsigned char & table_index : g_bm_shift_table) {
+        for (unsigned char &table_index: g_bm_shift_table) {
             table_index = 1;
         }
         return;
     }
 
-    for (unsigned char & table_index : g_bm_shift_table) {
+    for (unsigned char &table_index: g_bm_shift_table) {
         table_index = (unsigned char) (pattern_length - 1);
     }
 
@@ -442,7 +444,7 @@ static void bm_print_shift_table() {
     video_putstr(COLOR_DEFAULT, "BM info:\n");
 
     unsigned char seen_chars[256];
-    for (unsigned char & seen_char : seen_chars) {
+    for (unsigned char &seen_char: seen_chars) {
         seen_char = 0;
     }
 
@@ -497,11 +499,7 @@ search_boyer_moore(const char *text, unsigned int text_length, const char *patte
     return -1;
 }
 
-// ============================================================================
-// COMMANDS
-// ============================================================================
-
-static void cmd_info(const char *) {
+static void info_handler(const char *) {
     video_putstr(COLOR_DEFAULT, "Author: ");
     video_putstr(COLOR_DEFAULT, INFO_AUTHOR);
     video_putchar(COLOR_DEFAULT, '\n');
@@ -529,47 +527,43 @@ static void cmd_info(const char *) {
     video_putchar(COLOR_DEFAULT, '\n');
 }
 
-[[noreturn]] static void cmd_shutdown(const char *) {
-    video_putstr(COLOR_DEFAULT, "Shutting down...\n");
-    outw(ACPI_PWR_CMD, ACPI_PWR_VALUE);
-    for (;;) __asm__ volatile ("hlt");
-}
-
-static void cmd_upcase(const char *input_string) {
+static void upcase_handler(const char *input_string) {
     for (int char_index = 0; input_string[char_index]; char_index++) {
         video_putchar(COLOR_DEFAULT, (unsigned char) char_to_upper(input_string[char_index]));
     }
     video_putchar(COLOR_DEFAULT, '\n');
 }
 
-static void cmd_downcase(const char *input_string) {
+static void downcase_handler(const char *input_string) {
     for (int char_index = 0; input_string[char_index]; char_index++) {
         video_putchar(COLOR_DEFAULT, (unsigned char) char_to_lower(input_string[char_index]));
     }
     video_putchar(COLOR_DEFAULT, '\n');
 }
 
-static void cmd_titlize(const char *input_string) {
+static void titlize_handler(const char *s) {
     bool new_word = true;
 
-    for (int char_index = 0; input_string[char_index]; char_index++) {
-        auto character = (unsigned char) input_string[char_index];
-        if (character == ' ') {
+    for (unsigned char c; (c = (unsigned char) *s++) != 0;) {
+        if (c == ' ') {
             new_word = true;
-        } else {
-            if (new_word) {
-                character = char_to_upper((char) character);
-                new_word = false;
-            } else {
-                character = char_to_lower((char) character);
-            }
+            video_putchar(COLOR_DEFAULT, c);
+            continue;
         }
-        video_putchar(COLOR_DEFAULT, character);
+
+        if ((c | 32) >= 'a' && (c | 32) <= 'z') {
+            if (new_word) c = (unsigned char) char_to_upper((char) c);
+            else c = (unsigned char) char_to_lower((char) c);
+        }
+
+        new_word = false;
+        video_putchar(COLOR_DEFAULT, c);
     }
+
     video_putchar(COLOR_DEFAULT, '\n');
 }
 
-static void cmd_template(const char *arguments) {
+static void template_handler(const char *arguments) {
     g_template_length = 0;
     for (int buffer_index = 0; buffer_index < TEMPLATE_BUF_SIZE; buffer_index++) {
         g_template_buffer[buffer_index] = 0;
@@ -597,7 +591,7 @@ static void cmd_template(const char *arguments) {
     }
 }
 
-static void cmd_search(const char *arguments) {
+static void search_handler(const char *arguments) {
     if (!g_template_loaded) {
         video_putstr(COLOR_DEFAULT, "No template loaded.\n");
         return;
@@ -638,14 +632,20 @@ static void cmd_search(const char *arguments) {
     }
 }
 
+[[noreturn]] static void shutdown_handler(const char *) {
+    video_putstr(COLOR_DEFAULT, "Shutting down, Bye!\n");
+    outw(ACPI_PWR_CMD, ACPI_PWR_VALUE);
+    for (;;) __asm__ volatile ("hlt");
+}
+
 static const Command g_commands[] = {
-        {"info",     cmd_info},
-        {"shutdown", cmd_shutdown},
-        {"upcase",   cmd_upcase},
-        {"downcase", cmd_downcase},
-        {"titlize",  cmd_titlize},
-        {"template", cmd_template},
-        {"search",   cmd_search},
+        {"info",     info_handler},
+        {"shutdown", shutdown_handler},
+        {"upcase",   upcase_handler},
+        {"downcase", downcase_handler},
+        {"titlize",  titlize_handler},
+        {"template", template_handler},
+        {"search",   search_handler}
 };
 
 static bool command_name_matches(const char *input, const char *name, int name_length) {
@@ -685,34 +685,36 @@ static void dispatch_command(const char *input) {
     video_putstr(COLOR_DEFAULT, "Unknown command\n");
 }
 
+void polling_user_input() {
+    while (1) {
+        if (g_command_ready) {
+            g_command_ready = 0;
+            dispatch_command((const char *) g_command_buffer);
+            input_reset();
+            video_prompt();
+        }
+        __asm__ volatile ("hlt");
+    }
+}
+
 extern "C" int kmain() {
     g_boot_mode = *(volatile unsigned char *) BOOT_MODE_ADDR;
 
     video_clear();
+
     video_putstr(COLOR_DEFAULT, "Welcome to StringsOS!\n");
     video_prompt();
-    video_set_cursor(g_video.cursor_row, 2);
 
     input_reset();
 
     interrupts_disable();
     pic_remap();
     idt_initialize();
-
     idt_register_entry(0x21, GDT_CS, 0x80 | IDT_TYPE_INTR, (interrupt_handler_t) keyboard_handler);
-
     idt_load();
     pic_enable_keyboard_only();
     interrupts_enable();
 
-    for (;;) {
-        if (g_command_ready) {
-            g_command_ready = 0;
-            dispatch_command((const char *) g_command_buffer);
-            input_reset();
-            video_prompt();
-            video_set_cursor(g_video.cursor_row, 2);
-        }
-        __asm__ volatile ("hlt");
-    }
+    polling_user_input();
+    return 0;
 }

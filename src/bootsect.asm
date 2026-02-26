@@ -29,10 +29,8 @@ start:
 .init_params:
     mov ax, PARAM_SEG
     mov es, ax
-    ; если у тебя есть PARAM_OFF — лучше так:
-    ; mov byte [es:PARAM_OFF], 0
     xor di, di
-    mov byte [es:di], 0
+    mov byte [es:PARAM_OFF], 0
     jmp .init_video
 
 .init_video:

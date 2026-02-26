@@ -4,6 +4,11 @@
 use16
 org 0x7C00
 
+STATE_IDLE = 0
+STATE_B    = 1
+STATE_S    = 2
+STATE_ST   = 3
+
 ; where to store boot params (chosen by student)
 PARAM_SEG  equ 0x9000
 PARAM_OFF  equ 0x0000
@@ -42,87 +47,101 @@ start:
     mov si, prompt_msg
     call print_string
 
-    ; --- read keyboard stream until "bm" or "std" appears ---
-    ; state machine:
-    ; for "bm": waiting 'b' -> got 'b' -> got 'm'
-    ; for "std": waiting 's' -> got 's' -> got 't' -> got 'd'
-    xor bx, bx          ; BL = bm_state (0..1), BH = std_state (0..2)
+    ; cmd_state (BL):
+    ; IDLE -> 'b' -> (expect 'm')  => "bm"
+    ; IDLE -> 's' -> 't' -> (expect 'd') => "std"
+    xor bl, bl          ; BL = cmd_state (STATE_IDLE)
 
-.kbd_loop:
+.waiting_for_mode_loop:
     xor ah, ah
-    int 0x16            ; wait key, AL = ASCII
+    int 0x16
 
-    ; ----- bm state -----
-    cmp bl, 0
-    jne .bm_need_m
+    cmp bl, STATE_IDLE
+    je  .state_idle
+
+    cmp bl, STATE_B
+    je  .state_after_b
+
+    cmp bl, STATE_S
+    je  .state_after_s
+
+    jmp .state_after_st
+
+
+.state_idle:
     cmp al, 'b'
-    jne .bm_reset_check
-    mov bl, 1
-    jmp .std_state
+    je  .enter_state_b
 
-.bm_need_m:
+    cmp al, 's'
+    je  .enter_state_s
+
+    jmp .waiting_for_mode_loop
+
+.state_after_b:
     cmp al, 'm'
-    jne .bm_fail
-    ; matched "bm"
+    je  .command_bm_detected
+
+    cmp al, 'b'
+    je  .enter_state_b
+
+    cmp al, 's'
+    je  .enter_state_s
+
+    mov bl, STATE_IDLE
+    jmp .waiting_for_mode_loop
+
+.state_after_s:
+    cmp al, 't'
+    je  .enter_state_st
+
+    cmp al, 's'
+    je  .enter_state_s
+
+    cmp al, 'b'
+    je  .enter_state_b
+
+    mov bl, STATE_IDLE
+    jmp .waiting_for_mode_loop
+
+.state_after_st:
+    cmp al, 'd'
+    je  .command_std_detected
+
+    cmp al, 's'
+    je  .enter_state_s
+
+    cmp al, 'b'
+    je  .enter_state_b
+
+    mov bl, STATE_IDLE
+    jmp .waiting_for_mode_loop
+
+
+.enter_state_b:
+    mov bl, STATE_B
+    jmp .waiting_for_mode_loop
+
+.command_bm_detected:
     mov ax, PARAM_SEG
     mov es, ax
     mov byte [es:PARAM_OFF], 1
     jmp load_kernel
 
-.bm_fail:
-    ; if current char is 'b' keep state=1 else reset
-    cmp al, 'b'
-    jne .bm_zero
-    mov bl, 1
-    jmp .std_state
-.bm_zero:
-    xor bl, bl
 
-.bm_reset_check:
-    ; nothing special, continue to std_state
-    jmp .std_state
+.enter_state_s:
+    mov bl, STATE_S
+    jmp .waiting_for_mode_loop
 
-    ; ----- std state -----
-.std_state:
-    cmp bh, 0
-    jne .std_need_t
-    cmp al, 's'
-    jne .kbd_loop
-    mov bh, 1
-    jmp .kbd_loop
 
-.std_need_t:
-    cmp bh, 1
-    jne .std_need_d
-    cmp al, 't'
-    jne .std_fail_1
-    mov bh, 2
-    jmp .kbd_loop
+.enter_state_st:
+    mov bl, STATE_ST
+    jmp .waiting_for_mode_loop
 
-.std_need_d:
-    cmp al, 'd'
-    jne .std_fail_2
-    ; matched "std"
+.command_std_detected:
     mov ax, PARAM_SEG
     mov es, ax
     mov byte [es:PARAM_OFF], 2
     jmp load_kernel
-
-.std_fail_1:
-    ; if current char is 's' keep state=1 else reset
-    cmp al, 's'
-    jne .std_zero
-    mov bh, 1
-    jmp .kbd_loop
-.std_fail_2:
-    ; if current char is 's' restart at 1 else reset
-    cmp al, 's'
-    jne .std_zero
-    mov bh, 1
-    jmp .kbd_loop
-.std_zero:
-    xor bh, bh
-    jmp .kbd_loop
 
 ; --- load kernel from floppy B: into 0x1000:0000 ---
 load_kernel:
@@ -152,14 +171,14 @@ load_kernel:
     mov eax, cr0
     or eax, 1
     mov cr0, eax
-    jmp 0x08:pmode
+    jmp 0x08:protected_mode_entry
 
 disk_error:
     hlt
     jmp disk_error
 
 use32
-pmode:
+protected_mode_entry:
     mov ax, 0x10
     mov ds, ax
     mov es, ax

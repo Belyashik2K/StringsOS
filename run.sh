@@ -1,5 +1,3 @@
-#!/bin/bash
-
 set -e
 
 BUILD_DIR=build
@@ -7,6 +5,7 @@ SRC_DIR=src
 
 do_build() {
     echo "[0/5] Preparing build directory..."
+    rm -rf $BUILD_DIR
     mkdir -p $BUILD_DIR
 
     echo "[1/5] Assembling bootloader..."
@@ -37,7 +36,6 @@ do_run() {
     qemu-system-i386 -display sdl -fda bootsect.bin -fdb kernel.bin
 }
 
-# Parse arguments
 do_build_flag=false
 
 for arg in "$@"; do
@@ -55,7 +53,6 @@ for arg in "$@"; do
     esac
 done
 
-# Execute
 if [ "$do_build_flag" = true ]; then
     do_build
 fi

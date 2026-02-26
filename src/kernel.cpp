@@ -54,7 +54,37 @@ __asm__("jmp kmain");
 
 #define PROMPT_STR           "> "
 
+static const char g_scancode_to_ascii[128] = {
+        0, 27,
+        '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
+        8, 0,
+        'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']',
+        0, 0,
+        'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`',
+        0, '\\', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/',
+        0, '*', 0, ' ',
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '+', 0, 0, 0, 0
+};
+
+static const char g_scancode_to_ascii_shift[128] = {
+        0, 27,
+        '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+',
+        8, 0,
+        'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}',
+        0, 0,
+        'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"', '~',
+        0, '|', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?',
+        0, '*', 0, ' ',
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '+', 0, 0, 0, 0
+};
+
 typedef void (*interrupt_handler_t)();
+
+typedef void (*command_handler_t)(const char *);
 
 struct idt_entry {
     unsigned short base_lo;
@@ -69,29 +99,35 @@ struct idt_ptr {
     unsigned int base;
 } __attribute__((packed));
 
+struct Command {
+    const char *name;
+    command_handler_t handler;
+};
+
 struct VideoState {
     unsigned int cursor_row = 0;
     unsigned int cursor_col = 0;
 };
 static VideoState g_video;
-static volatile unsigned char * const video_memory = (volatile unsigned char *) VIDEO_BUF_PTR;
+static volatile unsigned char *const video_memory = (volatile unsigned char *) VIDEO_BUF_PTR;
 
 static idt_entry g_idt[256];
 static idt_ptr g_idt_ptr;
 
-static const char g_scancode_to_ascii[128] = {
-        0, 27,
-        '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
-        8, 0,
-        'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']',
-        0, 0,
-        'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`',
-        0, '\\', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/',
-        0, '*', 0, ' ',
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '+', 0, 0, 0, 0
-};
+static unsigned char g_boot_mode = 0;
+static volatile unsigned char g_shift_pressed = 0;
+static volatile unsigned char g_e0_prefix = 0;
+
+static volatile char g_command_buffer[CMD_BUF_SIZE];
+static volatile unsigned int g_command_length = 0;
+static volatile unsigned char g_command_ready = 0;
+
+static volatile char g_template_buffer[TEMPLATE_BUF_SIZE];
+static volatile unsigned int g_template_length = 0;
+static volatile unsigned char g_template_loaded = 0;
+
+static unsigned char g_bm_shift_table[256];
+
 
 static inline unsigned char inb(unsigned short port) {
     unsigned char data;
@@ -248,10 +284,6 @@ static void video_prompt() {
     video_putstr(COLOR_DEFAULT, PROMPT_STR);
 }
 
-static volatile char g_command_buffer[CMD_BUF_SIZE];
-static volatile unsigned int g_command_length = 0;
-static volatile unsigned char g_command_ready = 0;
-
 static void input_reset() {
     for (int buffer_index = 0; buffer_index < CMD_BUF_SIZE; buffer_index++) {
         g_command_buffer[buffer_index] = 0;
@@ -260,20 +292,18 @@ static void input_reset() {
     g_command_ready = 0;
 }
 
-// ============================================================================
-// KEYBOARD
-// ============================================================================
-
-static unsigned char g_boot_mode = 0;
-static volatile unsigned char g_shift_pressed = 0;
-static volatile unsigned char g_e0_prefix = 0;
-
 static inline int is_allowed_char(unsigned char c) {
     if ((c | 32) >= 'a' && (c | 32) <= 'z') return 1;
     if (c >= '0' && c <= '9') return 1;
     switch (c) {
-        case ' ': case '+': case '-': case '/': case '*': return 1;
-        default: return 0;
+        case ' ':
+        case '+':
+        case '-':
+        case '/':
+        case '*':
+            return 1;
+        default:
+            return 0;
     }
 }
 
@@ -291,28 +321,27 @@ static void keyboard_handle_enter() {
 }
 
 static char keyboard_translate_scancode(unsigned char scancode) {
-    char character = g_scancode_to_ascii[scancode];
-    if (!character) return 0;
-
-    if (g_shift_pressed && character >= 'a' && character <= 'z') {
-        character = (char) (character - 'a' + 'A');
-    }
-
-    return character;
+    return g_shift_pressed ? g_scancode_to_ascii_shift[scancode] : g_scancode_to_ascii[scancode];
 }
 
 static void keyboard_append_char(char character) {
-    if (!is_allowed_char(character)) return;
-    if (g_command_length >= CMD_MAX_LEN) return;
+    if ((unsigned) g_command_length >= CMD_MAX_LEN) return;
+    if (!is_allowed_char((unsigned char) character)) return;
 
     g_command_buffer[g_command_length++] = character;
-    g_command_buffer[g_command_length] = 0;
+    g_command_buffer[g_command_length] = '\0';
     video_putchar(COLOR_DEFAULT, (unsigned char) character);
 }
 
 static void keyboard_handle_scancode(unsigned char scancode) {
-    if (scancode == SCANCODE_E0_PREFIX) { g_e0_prefix = 1; return; }
-    if (g_e0_prefix) { g_e0_prefix = 0; return; }
+    if (scancode == SCANCODE_E0_PREFIX) {
+        g_e0_prefix = 1;
+        return;
+    }
+    if (g_e0_prefix) {
+        g_e0_prefix = 0;
+        return;
+    }
 
     if (scancode & SCANCODE_RELEASE_MASK) {
         if (scancode == SCANCODE_SHIFT_L_REL || scancode == SCANCODE_SHIFT_R_REL)
@@ -320,9 +349,18 @@ static void keyboard_handle_scancode(unsigned char scancode) {
         return;
     }
 
-    if (scancode == SCANCODE_SHIFT_L || scancode == SCANCODE_SHIFT_R) { g_shift_pressed = 1; return; }
-    if (scancode == SCANCODE_BACKSPACE) { keyboard_handle_backspace(); return; }
-    if (scancode == SCANCODE_ENTER) { keyboard_handle_enter(); return; }
+    if (scancode == SCANCODE_SHIFT_L || scancode == SCANCODE_SHIFT_R) {
+        g_shift_pressed = 1;
+        return;
+    }
+    if (scancode == SCANCODE_BACKSPACE) {
+        keyboard_handle_backspace();
+        return;
+    }
+    if (scancode == SCANCODE_ENTER) {
+        keyboard_handle_enter();
+        return;
+    }
 
     char character = keyboard_translate_scancode(scancode);
     if (character) keyboard_append_char(character);
@@ -346,10 +384,6 @@ __attribute__((naked)) void keyboard_handler() {
             );
 }
 
-// ============================================================================
-// STRING HELPERS
-// ============================================================================
-
 static int string_length(const char *string) {
     int length = 0;
     while (string[length]) length++;
@@ -369,16 +403,6 @@ static char char_to_lower(char character) {
     }
     return character;
 }
-
-// ============================================================================
-// TEMPLATE & SEARCH
-// ============================================================================
-
-static volatile char g_template_buffer[TEMPLATE_BUF_SIZE];
-static volatile unsigned int g_template_length = 0;
-static volatile unsigned char g_template_loaded = 0;
-
-static unsigned char g_bm_shift_table[256];
 
 static void bm_build_shift_table() {
     unsigned int pattern_length = g_template_length;
@@ -477,13 +501,6 @@ search_boyer_moore(const char *text, unsigned int text_length, const char *patte
 // COMMANDS
 // ============================================================================
 
-typedef void (*command_handler_t)(const char *);
-
-struct Command {
-    const char *name;
-    command_handler_t handler;
-};
-
 static void cmd_info(const char *) {
     video_putstr(COLOR_DEFAULT, "Author: ");
     video_putstr(COLOR_DEFAULT, INFO_AUTHOR);
@@ -534,18 +551,17 @@ static void cmd_downcase(const char *input_string) {
 
 static void cmd_titlize(const char *input_string) {
     bool new_word = true;
+    
     for (int char_index = 0; input_string[char_index]; char_index++) {
-        unsigned char character = (unsigned char) input_string[char_index];
+        auto character = (unsigned char) input_string[char_index];
         if (character == ' ') {
             new_word = true;
         } else {
             if (new_word) {
-                if (character >= 'a' && character <= 'z') {
-                    character -= 'a' - 'A';
-                }
+                character = char_to_upper((char) character);
                 new_word = false;
-            } else if (character >= 'A' && character <= 'Z') {
-                character += 'a' - 'A';
+            } else {
+                character = char_to_lower((char) character);
             }
         }
         video_putchar(COLOR_DEFAULT, character);
@@ -668,10 +684,6 @@ static void dispatch_command(const char *input) {
 
     video_putstr(COLOR_DEFAULT, "Unknown command\n");
 }
-
-// ============================================================================
-// ENTRY POINT
-// ============================================================================
 
 extern "C" int kmain() {
     g_boot_mode = *(volatile unsigned char *) BOOT_MODE_ADDR;

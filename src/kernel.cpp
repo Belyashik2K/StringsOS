@@ -23,7 +23,7 @@ __asm__("jmp kmain");
 
 #define CURSOR_PORT         (0x3D4)
 
-#define BOOT_MODE_ADDR      (0x19840)
+#define BOOT_MODE_ADDR      (0x1984)
 
 #define CMD_MAX_LEN         (40)
 #define CMD_BUF_SIZE        (CMD_MAX_LEN + 1)

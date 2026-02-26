@@ -13,8 +13,9 @@ STACK_TOP   = BOOT_ORG
 RM_STACK_TOP = 7000h
 PM_STACK_TOP = 09FC00h
 
-PARAM_SEG  equ 0x1984
-PARAM_OFF  equ 0x0000
+; Stored at 0198:0004 -> 0x1984 in memory
+BOOT_MODE_SEGMENT equ 0198h
+BOOT_MODE_OFFSET equ 0004h
 
 DRIVE_B     = 01h
 
@@ -28,10 +29,10 @@ start:
     mov sp, RM_STACK_TOP
     sti
 .init_params:
-    mov ax, PARAM_SEG
+    mov ax, BOOT_MODE_SEGMENT
     mov es, ax
     xor di, di
-    mov byte [es:PARAM_OFF], 0
+    mov byte [es:BOOT_MODE_OFFSET], 0
 .init_video:
     mov ah, 02h
     mov bh, 00h
@@ -110,9 +111,9 @@ start:
     mov CMD_STATE, STATE_B
     jmp .waiting_for_mode_loop
 .command_bm_detected:
-    mov ax, PARAM_SEG
+    mov ax, BOOT_MODE_SEGMENT
     mov es, ax
-    mov byte [es:PARAM_OFF], 1
+    mov byte [es:BOOT_MODE_OFFSET], 1
     jmp load_kernel
 .enter_state_s:
     mov CMD_STATE, STATE_S
@@ -121,9 +122,9 @@ start:
     mov CMD_STATE, STATE_ST
     jmp .waiting_for_mode_loop
 .command_std_detected:
-    mov ax, PARAM_SEG
+    mov ax, BOOT_MODE_SEGMENT
     mov es, ax
-    mov byte [es:PARAM_OFF], 2
+    mov byte [es:BOOT_MODE_OFFSET], 2
     jmp load_kernel
 
 

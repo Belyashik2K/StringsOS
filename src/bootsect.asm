@@ -2,12 +2,16 @@
 ; then loads kernel from floppy B: to 0x1000:0000 (linear 0x10000) and jumps.
 
 use16
-org 0x7C00
+org BOOT_ORG
 
 STATE_IDLE = 0
 STATE_B    = 1
 STATE_S    = 2
 STATE_ST   = 3
+CMD_STATE equ bl
+
+BOOT_ORG    = 7C00h
+STACK_TOP   = BOOT_ORG     ; если так задумано
 
 ; where to store boot params (chosen by student)
 PARAM_SEG  equ 0x9000
@@ -21,7 +25,7 @@ start:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x7C00
+    mov sp, STACK_TOP
     sti
 
     ; init params
@@ -47,22 +51,22 @@ start:
     mov si, prompt_msg
     call print_string
 
-    ; cmd_state (BL):
+    ; cmd_state (CMD_STATE):
     ; IDLE -> 'b' -> (expect 'm')  => "bm"
     ; IDLE -> 's' -> 't' -> (expect 'd') => "std"
-    xor bl, bl          ; BL = cmd_state (STATE_IDLE)
+    xor CMD_STATE, CMD_STATE          ; CMD_STATE = cmd_state (STATE_IDLE)
 
 .waiting_for_mode_loop:
     xor ah, ah
     int 0x16
 
-    cmp bl, STATE_IDLE
+    cmp CMD_STATE, STATE_IDLE
     je  .state_idle
 
-    cmp bl, STATE_B
+    cmp CMD_STATE, STATE_B
     je  .state_after_b
 
-    cmp bl, STATE_S
+    cmp CMD_STATE, STATE_S
     je  .state_after_s
 
     jmp .state_after_st
@@ -87,7 +91,7 @@ start:
     cmp al, 's'
     je  .enter_state_s
 
-    mov bl, STATE_IDLE
+    mov CMD_STATE, STATE_IDLE
     jmp .waiting_for_mode_loop
 
 .state_after_s:
@@ -100,7 +104,7 @@ start:
     cmp al, 'b'
     je  .enter_state_b
 
-    mov bl, STATE_IDLE
+    mov CMD_STATE, STATE_IDLE
     jmp .waiting_for_mode_loop
 
 .state_after_st:
@@ -113,12 +117,12 @@ start:
     cmp al, 'b'
     je  .enter_state_b
 
-    mov bl, STATE_IDLE
+    mov CMD_STATE, STATE_IDLE
     jmp .waiting_for_mode_loop
 
 
 .enter_state_b:
-    mov bl, STATE_B
+    mov CMD_STATE, STATE_B
     jmp .waiting_for_mode_loop
 
 .command_bm_detected:
@@ -129,12 +133,12 @@ start:
 
 
 .enter_state_s:
-    mov bl, STATE_S
+    mov CMD_STATE, STATE_S
     jmp .waiting_for_mode_loop
 
 
 .enter_state_st:
-    mov bl, STATE_ST
+    mov CMD_STATE, STATE_ST
     jmp .waiting_for_mode_loop
 
 .command_std_detected:
@@ -222,5 +226,4 @@ print_string:
 prompt_msg db "Enter algorithm (bm/std): ", 0
 
 times (512 - ($ - start) - 2) db 0
-
 dw 0xAA55

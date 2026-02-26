@@ -50,7 +50,6 @@ __asm__("jmp kmain");
 
 #define INFO_MODE_BM        "bm"
 #define INFO_MODE_STD       "std"
-#define INFO_MODE_UNKNOWN   "unknown"
 
 #define PROMPT_STR           ">>> "
 #define PROMPT_STR_LEN       (4)
@@ -88,11 +87,17 @@ typedef void (*interrupt_handler_t)();
 typedef void (*command_handler_t)(const char *);
 
 static void info_handler(const char *);
+
 static void upcase_handler(const char *);
+
 static void downcase_handler(const char *);
+
 static void titlize_handler(const char *);
+
 static void template_handler(const char *);
+
 static void search_handler(const char *);
+
 [[noreturn]] static void shutdown_handler(const char *);
 
 struct idt_entry {
@@ -459,6 +464,7 @@ static void template_print_status() {
 }
 
 static void bm_print_shift_table() {
+    bm_build_shift_table();
     video_putstr(COLOR_DEFAULT, "BM info:\n");
 
     unsigned char seen_chars[256];
@@ -518,7 +524,6 @@ search_boyer_moore(const char *text, unsigned int text_length, const char *patte
 }
 
 
-
 static void info_handler(const char *) {
     video_putstr(COLOR_DEFAULT, "Author: ");
     video_putstr(COLOR_DEFAULT, INFO_AUTHOR);
@@ -541,8 +546,6 @@ static void info_handler(const char *) {
         video_putstr(COLOR_DEFAULT, INFO_MODE_BM);
     } else if (g_boot_mode == MODE_STD) {
         video_putstr(COLOR_DEFAULT, INFO_MODE_STD);
-    } else {
-        video_putstr(COLOR_DEFAULT, INFO_MODE_UNKNOWN);
     }
     video_putchar(COLOR_DEFAULT, '\n');
 }
@@ -599,21 +602,18 @@ static void template_handler(const char *arguments) {
     g_template_loaded = (g_template_length > 0) ? 1 : 0;
 
     if (!g_template_loaded) {
-        video_putstr(COLOR_DEFAULT, "No template provided.\n");
+        video_putstr(COLOR_DEFAULT, "No template in memory.\n");
         return;
     }
 
     template_print_status();
 
-    if (g_boot_mode == MODE_BM) {
-        bm_build_shift_table();
-        bm_print_shift_table();
-    }
+    if (g_boot_mode == MODE_BM) bm_print_shift_table();
 }
 
 static void search_handler(const char *arguments) {
     if (!g_template_loaded) {
-        video_putstr(COLOR_DEFAULT, "No template loaded.\n");
+        video_putstr(COLOR_DEFAULT, "No template in memory.\n");
         return;
     }
 
@@ -629,27 +629,35 @@ static void search_handler(const char *arguments) {
 
     int found_position;
     if (g_boot_mode == MODE_BM) {
-        found_position = search_boyer_moore(search_text, search_length, (const char *) g_template_buffer,
-                                            g_template_length);
+        found_position = search_boyer_moore(
+                search_text,
+                search_length,
+                (const char *) g_template_buffer, g_template_length
+        );
     } else {
-        found_position = search_naive(search_text, search_length, (const char *) g_template_buffer, g_template_length);
+        found_position = search_naive(
+                search_text,
+                search_length,
+                (const char *) g_template_buffer, g_template_length
+        );
     }
 
-    if (found_position >= 0) {
-        video_putstr(COLOR_DEFAULT, "Found '");
-        for (unsigned int pattern_index = 0; pattern_index < g_template_length; pattern_index++) {
-            video_putchar(COLOR_DEFAULT, (unsigned char) g_template_buffer[pattern_index]);
-        }
-        video_putstr(COLOR_DEFAULT, "' at pos: ");
-        video_putnum(COLOR_DEFAULT, (unsigned int) found_position);
-        video_putchar(COLOR_DEFAULT, '\n');
-    } else {
+    if (found_position < 0) {
         video_putstr(COLOR_DEFAULT, "Not found '");
         for (unsigned int pattern_index = 0; pattern_index < g_template_length; pattern_index++) {
             video_putchar(COLOR_DEFAULT, (unsigned char) g_template_buffer[pattern_index]);
         }
         video_putstr(COLOR_DEFAULT, "'\n");
+        return;
     }
+
+    video_putstr(COLOR_DEFAULT, "Found '");
+    for (unsigned int pattern_index = 0; pattern_index < g_template_length; pattern_index++) {
+        video_putchar(COLOR_DEFAULT, (unsigned char) g_template_buffer[pattern_index]);
+    }
+    video_putstr(COLOR_DEFAULT, "' at pos: ");
+    video_putnum(COLOR_DEFAULT, (unsigned int) found_position);
+    video_putchar(COLOR_DEFAULT, '\n');
 }
 
 [[noreturn]] static void shutdown_handler(const char *) {
@@ -691,7 +699,7 @@ static void dispatch_command(const char *input) {
         return;
     }
 
-    video_putstr(COLOR_DEFAULT, "Unknown command\n");
+    video_putstr(COLOR_DEFAULT, "Unknown command, try again :)\n");
 }
 
 void polling_user_input() {

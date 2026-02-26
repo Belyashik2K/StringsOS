@@ -10,20 +10,22 @@ CMD_STATE equ bl
 BOOT_ORG    = 7C00h
 STACK_TOP   = BOOT_ORG
 
+RM_STACK_TOP = 7000h
+PM_STACK_TOP = 09FC00h
+
 PARAM_SEG  equ 0x9000
 PARAM_OFF  equ 0x0000
 
 DRIVE_B     = 01h
 
 start:
-    mov [boot_drive], dl
 .init_cpu:
     cli
     xor ax, ax
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, STACK_TOP
+    mov sp, RM_STACK_TOP
     sti
 .init_params:
     mov ax, PARAM_SEG
@@ -137,9 +139,9 @@ load_kernel:
     xor ah, ah
     int 13h
 
-    ; Read first 3 sectors (18 sectors per track, cylinder 0, head 0)
-    ; Then read next 3 sectors (cylinder 0, head 1)
-    ; Then read 3 sectors from the next track (cylinder 1, head 0)
+    ; Read first sector (18 sectors per track, cylinder 0, head 0)
+    ; Then read next sectors (cylinder 0, head 1)
+    ; Then read sectors from the next track (cylinder 1, head 0)
 
     mov al, 18
     mov ch, 0
@@ -200,24 +202,14 @@ protected_mode:
     mov ss, ax
     mov fs, ax
     mov gs, ax
-    mov esp, 0x90000
+    mov esp, PM_STACK_TOP
 
-    call 0x00010000     ; kernel entry (linked to 0x10000)
+    mov eax, 00010000h
+    call eax
 
 halt:
     hlt
     jmp halt
-
-align 8
-gdt:
-    dq 0
-    dq 0x00CF9A000000FFFF
-    dq 0x00CF92000000FFFF
-gdt_end:
-
-gdt_info:
-    dw gdt_end - gdt - 1
-    dd gdt
 
 print_string:
     pusha
@@ -233,8 +225,19 @@ print_string:
     popa
     ret
 
+
+align 8
+gdt:
+    dq 0
+    dq 0x00CF9A000000FFFF
+    dq 0x00CF92000000FFFF
+gdt_end:
+
+gdt_info:
+    dw gdt_end - gdt - 1
+    dd gdt
+
 prompt_msg db "Enter algorithm (bm/std): ", 0
-boot_drive db 0
 
 times (512 - ($ - start) - 2) db 0
 dw 0xAA55

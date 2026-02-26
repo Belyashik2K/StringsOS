@@ -14,8 +14,6 @@ PARAM_SEG  equ 0x9000
 PARAM_OFF  equ 0x0000
 
 start:
-    jmp .init_cpu
-
 .init_cpu:
     cli
     xor ax, ax
@@ -24,15 +22,11 @@ start:
     mov ss, ax
     mov sp, STACK_TOP
     sti
-    jmp .init_params
-
 .init_params:
     mov ax, PARAM_SEG
     mov es, ax
     xor di, di
     mov byte [es:PARAM_OFF], 0
-    jmp .init_video
-
 .init_video:
     mov ah, 02h
     mov bh, 00h
@@ -44,17 +38,11 @@ start:
     mov cx, 0000h
     mov dx, 184Fh
     int 10h
-    jmp .show_prompt
-
 .show_prompt:
     mov si, prompt_msg
     call print_string
-    jmp .init_cmd_state
-
 .init_cmd_state:
     xor CMD_STATE, CMD_STATE
-    jmp .waiting_for_mode_loop
-
 .waiting_for_mode_loop:
     xor ah, ah
     int 0x16
@@ -69,8 +57,6 @@ start:
     je  .state_after_s
 
     jmp .state_after_st
-
-
 .state_idle:
     cmp al, 'b'
     je  .enter_state_b
@@ -79,7 +65,6 @@ start:
     je  .enter_state_s
 
     jmp .waiting_for_mode_loop
-
 .state_after_b:
     cmp al, 'm'
     je  .command_bm_detected
@@ -92,7 +77,6 @@ start:
 
     mov CMD_STATE, STATE_IDLE
     jmp .waiting_for_mode_loop
-
 .state_after_s:
     cmp al, 't'
     je  .enter_state_st
@@ -105,7 +89,6 @@ start:
 
     mov CMD_STATE, STATE_IDLE
     jmp .waiting_for_mode_loop
-
 .state_after_st:
     cmp al, 'd'
     je  .command_std_detected
@@ -118,28 +101,20 @@ start:
 
     mov CMD_STATE, STATE_IDLE
     jmp .waiting_for_mode_loop
-
-
 .enter_state_b:
     mov CMD_STATE, STATE_B
     jmp .waiting_for_mode_loop
-
 .command_bm_detected:
     mov ax, PARAM_SEG
     mov es, ax
     mov byte [es:PARAM_OFF], 1
     jmp load_kernel
-
-
 .enter_state_s:
     mov CMD_STATE, STATE_S
     jmp .waiting_for_mode_loop
-
-
 .enter_state_st:
     mov CMD_STATE, STATE_ST
     jmp .waiting_for_mode_loop
-
 .command_std_detected:
     mov ax, PARAM_SEG
     mov es, ax

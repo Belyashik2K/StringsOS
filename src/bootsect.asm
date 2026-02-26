@@ -213,5 +213,6 @@ gdt_desc:
     .long gdt
 
 # pad to 510 bytes and add boot signature
-.fill 510 - (. - _start), 1, 0
+.zero (512 - ($ - _start) - 2)
+
 .word 0xAA55

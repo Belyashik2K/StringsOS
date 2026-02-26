@@ -171,14 +171,14 @@ load_kernel:
     mov eax, cr0
     or eax, 1
     mov cr0, eax
-    jmp 0x08:protected_mode_entry
+    jmp 0x08:protected_mode
 
 disk_error:
     hlt
     jmp disk_error
 
 use32
-protected_mode_entry:
+protected_mode:
     mov ax, 0x10
     mov ds, ax
     mov es, ax
@@ -220,5 +220,6 @@ print_string:
 
 prompt_msg db "Enter algorithm (bm/std): ", 0
 
-times 510 - ($ - $$) db 0
+times (512 - ($ - start) - 2) db 0
+
 dw 0xAA55

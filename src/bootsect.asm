@@ -176,9 +176,7 @@ read_ok:
     mov eax, cr0
     or eax, 1
     mov cr0, eax
-    .byte 0x66, 0xEA
-    .long pmode
-    .word 0x08
+    jmp 0x08:pmode
 
 disk_error:
     hlt

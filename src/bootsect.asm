@@ -13,7 +13,10 @@ STACK_TOP   = BOOT_ORG
 PARAM_SEG  equ 0x9000
 PARAM_OFF  equ 0x0000
 
+DRIVE_B     = 01h
+
 start:
+    mov [boot_drive], dl
 .init_cpu:
     cli
     xor ax, ax
@@ -121,35 +124,69 @@ start:
     mov byte [es:PARAM_OFF], 2
     jmp load_kernel
 
-; --- load kernel from floppy B: into 0x1000:0000 ---
+
 load_kernel:
     cli
+    mov dl, DRIVE_B
+    mov ax, 1000h
+    mov es, ax
 
-    mov dl, 0x01        ; drive B:
-    mov ch, 0x00        ; cylinder
-    mov dh, 0x00        ; head
-    mov cl, 0x01        ; sector
-    mov al, 0x30        ; 48 sectors
-    mov bx, 0x1000
-    mov es, bx
+    mov si, 3
+
+.retry:
+    xor ah, ah
+    int 13h
+
+    ; Read first 3 sectors (18 sectors per track, cylinder 0, head 0)
+    ; Then read next 3 sectors (cylinder 0, head 1)
+    ; Then read 3 sectors from the next track (cylinder 1, head 0)
+
+    mov al, 18
+    mov ch, 0
+    mov dh, 0
+    mov cl, 1
     xor bx, bx
-    mov ah, 0x02
-    int 0x13
-    jc disk_error
+    call read_chs
+    jc  .fail
 
-    ; enable A20
-    in al, 0x92
-    or al, 2
-    out 0x92, al
+    mov al, 18
+    mov ch, 0
+    mov dh, 1
+    mov cl, 1
+    mov bx, 2400h
+    call read_chs
+    jc  .fail
 
-    ; load GDT
+    mov al, 12
+    mov ch, 1
+    mov dh, 0
+    mov cl, 1
+    mov bx, 4800h
+    call read_chs
+    jc  .fail
+
+    jmp .ok
+.fail:
+    dec si
+    jnz .retry
+    jmp disk_error
+.ok:
+.enable_a20:
+    in  al, 92h
+    or  al, 2
+    out 92h, al
+.load_gdt:
     lgdt [gdt_info]
-
-    ; enter protected mode
+.enable_protected_mode:
     mov eax, cr0
-    or eax, 1
+    or  eax, 1
     mov cr0, eax
-    jmp 0x08:protected_mode
+    jmp 08h:protected_mode
+
+read_chs:
+    mov ah, 02h
+    int 13h
+    ret
 
 disk_error:
     hlt
@@ -182,7 +219,6 @@ gdt_info:
     dw gdt_end - gdt - 1
     dd gdt
 
-; print_string: prints null-terminated string at DS:SI using BIOS teletype
 print_string:
     pusha
 .ps_loop:
@@ -198,6 +234,7 @@ print_string:
     ret
 
 prompt_msg db "Enter algorithm (bm/std): ", 0
+boot_drive db 0
 
 times (512 - ($ - start) - 2) db 0
 dw 0xAA55

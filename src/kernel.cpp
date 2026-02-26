@@ -87,6 +87,14 @@ typedef void (*interrupt_handler_t)();
 
 typedef void (*command_handler_t)(const char *);
 
+static void info_handler(const char *);
+static void upcase_handler(const char *);
+static void downcase_handler(const char *);
+static void titlize_handler(const char *);
+static void template_handler(const char *);
+static void search_handler(const char *);
+[[noreturn]] static void shutdown_handler(const char *);
+
 struct idt_entry {
     unsigned short base_lo;
     unsigned short segm_sel;
@@ -128,6 +136,16 @@ static volatile unsigned int g_template_length = 0;
 static volatile unsigned char g_template_loaded = 0;
 
 static unsigned char g_bm_shift_table[256];
+
+static const Command g_commands[] = {
+        {"info",     info_handler},
+        {"shutdown", shutdown_handler},
+        {"upcase",   upcase_handler},
+        {"downcase", downcase_handler},
+        {"titlize",  titlize_handler},
+        {"template", template_handler},
+        {"search",   search_handler}
+};
 
 
 static inline unsigned char inb(unsigned short port) {
@@ -637,16 +655,6 @@ static void search_handler(const char *arguments) {
     outw(ACPI_PWR_CMD, ACPI_PWR_VALUE);
     for (;;) __asm__ volatile ("hlt");
 }
-
-static const Command g_commands[] = {
-        {"info",     info_handler},
-        {"shutdown", shutdown_handler},
-        {"upcase",   upcase_handler},
-        {"downcase", downcase_handler},
-        {"titlize",  titlize_handler},
-        {"template", template_handler},
-        {"search",   search_handler}
-};
 
 static bool command_name_matches(const char *input, const char *name, int name_length) {
     for (int char_index = 0; char_index < name_length; char_index++) {

@@ -1,6 +1,3 @@
-; bootsect.asm (FASM) — waits for "bm" or "std" without Enter, stores choice,
-; then loads kernel from floppy B: to 0x1000:0000 (linear 0x10000) and jumps.
-
 use16
 org BOOT_ORG
 
@@ -11,13 +8,10 @@ STATE_ST   = 3
 CMD_STATE equ bl
 
 BOOT_ORG    = 7C00h
-STACK_TOP   = BOOT_ORG     ; если так задумано
+STACK_TOP   = BOOT_ORG
 
-; where to store boot params (chosen by student)
 PARAM_SEG  equ 0x9000
 PARAM_OFF  equ 0x0000
-; layout:
-; [0] = mode (1 = bm, 2 = std)
 
 start:
     cli

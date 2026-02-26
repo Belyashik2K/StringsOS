@@ -588,15 +588,19 @@ static void titlize_handler(const char *s) {
 
 static void template_handler(const char *arguments) {
     g_template_length = 0;
+
     for (int buffer_index = 0; buffer_index < TEMPLATE_BUF_SIZE; buffer_index++) {
         g_template_buffer[buffer_index] = 0;
     }
 
-    int arg_index = 0;
-    while (arguments[arg_index] == ' ') arg_index++;
+    int start = 0;
+    while (arguments[start] == ' ') start++;
 
-    while (arguments[arg_index] && g_template_length < TEMPLATE_MAX_LEN) {
-        g_template_buffer[g_template_length++] = arguments[arg_index++];
+    int end = string_length(arguments) - 1;
+    while (end >= start && arguments[end] == ' ') end--;
+
+    for (int i = start; i <= end && g_template_length < TEMPLATE_MAX_LEN; i++) {
+        g_template_buffer[g_template_length++] = arguments[i];
     }
 
     g_template_loaded = (g_template_length > 0) ? 1 : 0;
@@ -608,7 +612,8 @@ static void template_handler(const char *arguments) {
 
     template_print_status();
 
-    if (g_boot_mode == MODE_BM) bm_print_shift_table();
+    if (g_boot_mode == MODE_BM)
+        bm_print_shift_table();
 }
 
 static void search_handler(const char *arguments) {

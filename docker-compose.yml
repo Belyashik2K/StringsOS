@@ -1,0 +1,6 @@
+services:
+  stringsos:
+    build: .
+    platform: linux/amd64
+    ports:
+      - "6080:6080"

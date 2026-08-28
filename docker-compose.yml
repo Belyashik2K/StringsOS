@@ -1,5 +1,6 @@
+name: strings-os
 services:
-  strings_os:
+  os:
     build: .
     platform: linux/amd64
     ports:

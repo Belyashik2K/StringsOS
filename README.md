@@ -65,4 +65,4 @@ docker-compose.yml
 
 ## License
 
-[MIT](LICENSE)
+[MIT License](LICENSE)

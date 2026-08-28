@@ -1,10 +1,14 @@
 <h1 align="center">StringsOS</h1>
 
+<p align="center"><strong>A bare-metal x86 OS with a hand-written bootloader and kernel, built around an interactive shell for exploring substring-search algorithms.</strong></p>
+
 <p align="center">
   <img src="assets/strings-os_preview.gif" alt="StringsOS boot and shell preview" width="600">
 </p>
 
-A minimal x86 operating system built from scratch — a 16-bit real-mode bootloader (FASM) that loads a freestanding C++ kernel, which brings up its own IDT/PIC/keyboard driver and runs an interactive shell. The theme of the shell is string processing: at boot you pick between two substring-search algorithms, then use the shell to try them out.
+## About
+
+StringsOS is a minimal x86 operating system built from scratch — a 16-bit real-mode bootloader (FASM) that loads a freestanding C++ kernel, which brings up its own IDT/PIC/keyboard driver and runs an interactive shell. The theme of the shell is string processing: at boot you pick between two substring-search algorithms, then use the shell to try them out.
 
 ## What it does
 

@@ -1,5 +1,5 @@
 services:
-  stringsos:
+  strings_os:
     build: .
     platform: linux/amd64
     ports:

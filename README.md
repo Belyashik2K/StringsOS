@@ -71,6 +71,11 @@ Dockerfile       containerized build + QEMU/noVNC runtime
 docker-compose.yml
 ```
 
+## Project status
+
+This project is **archived and no longer under active development**. Published as-is for
+reference; issues and PRs may not be reviewed.
+
 ## License
 
 [MIT License](LICENSE)
